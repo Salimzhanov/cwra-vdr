@@ -11,7 +11,6 @@ Key Features:
 Usage:
   python cwra.py --csv labeled_raw_modalities.csv --focus early
 
-Author: VDR Benchmark Team
 """
 
 from __future__ import annotations
@@ -195,7 +194,7 @@ def balanced_group_kfold_indices(
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="CWRA for VDR virtual screening benchmark",
+        description="CWRA for VDR virtual screening toolbox",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     ap.add_argument("--csv", default="labeled_raw_modalities.csv",
@@ -221,7 +220,7 @@ def main() -> None:
     args = ap.parse_args()
 
     print("=" * 70)
-    print("CWRA - VDR Virtual Screening Benchmark")
+    print("CWRA - VDR Virtual Screening Toolbox")
     print("=" * 70)
     print(f"Focus: {args.focus}")
     print(f"Aggregation: {args.aggregation}")

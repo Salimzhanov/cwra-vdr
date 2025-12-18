@@ -40,7 +40,7 @@ This document outlines the steps to release a new version of CWRA to GitHub and 
 
 ## GitHub Release
 
-1. Go to [GitHub Releases](https://github.com/yourusername/cwra-vdr-benchmark/releases)
+1. Go to [GitHub Releases](https://github.com/Salimzhanov/cwra-vdr-toolbox/releases)
 2. Click "Create a new release"
 3. Tag version: `v1.0.0`
 4. Release title: `CWRA v1.0.0 - Initial Public Release`

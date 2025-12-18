@@ -1,6 +1,6 @@
 # CWRA: Calibrated Weighted Rank Aggregation for VDR Virtual Screening
 
-[![CI](https://github.com/yourusername/cwra-vdr/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/cwra-vdr/actions/workflows/ci.yml)
+[![CI](https://github.com/Salimzhanov/cwra-vdr/actions/workflows/ci.yml/badge.svg)](https://github.com/Salimzhanov/cwra-vdr/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/cwra-vdr.svg)](https://pypi.org/project/cwra-vdr/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -33,7 +33,7 @@ pip install cwra-vdr
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/cwra-vdr.git
+git clone https://github.com/Salimzhanov/cwra-vdr.git
 cd cwra-vdr
 
 # Install in development mode
@@ -267,7 +267,7 @@ If you use this code in your research, please cite:
   title={CWRA: Calibrated Weighted Rank Aggregation for VDR Virtual Screening},
   author={Salimzhanov, Abylay and Molnár, Ferdinand and Fazli, Siamac},
   year={2025},
-  url={https://github.com/yourusername/cwra-vdr-benchmark},
+  url={https://github.com/Salimzhanov/cwra-vdr-toolbox},
   version={1.0.0}
 }
 ```
@@ -283,7 +283,7 @@ If you use this code in your research, please cite:
     Fazli, Siamac
   },
   year={2025},
-  url={https://github.com/yourusername/cwra-vdr-benchmark},
+  url={https://github.com/Salimzhanov/cwra-vdr-toolbox},
   version={1.0.0},
   orcid={
     0000-0001-6630-585X and

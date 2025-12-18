@@ -22,7 +22,7 @@ setup(
     description="Calibrated Weighted Rank Aggregation for VDR Virtual Screening",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/cwra-vdr-benchmark",
+    url="https://github.com/Salimzhanov/cwra-vdr-toolbox",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
