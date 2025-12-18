@@ -9,7 +9,7 @@ Key Features:
 4. Focus on best-performing modalities (GraphDTA_Kd, MLTLE_pKd, UniMol_sim)
 
 Usage:
-  python cwra.py --csv labeled_raw_modalities_with_tankbind.csv --focus early
+  python cwra.py --csv labeled_raw_modalities.csv --focus early
 
 Author: VDR Benchmark Team
 """
@@ -198,7 +198,7 @@ def main() -> None:
         description="CWRA for VDR virtual screening benchmark",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    ap.add_argument("--csv", default="labeled_raw_modalities_with_tankbind.csv",
+    ap.add_argument("--csv", default="labeled_raw_modalities.csv",
                     help="Input CSV with modalities + smiles + source")
     ap.add_argument("--outer_splits", type=int, default=10,
                     help="Number of outer CV folds")
@@ -210,7 +210,7 @@ def main() -> None:
                     help="Risk aversion: mean(obj) - beta*std(obj)")
     ap.add_argument("--focus", type=str, default="early",
                     choices=["early", "balanced", "standard"],
-                    help="Optimization focus: 'early' (1%,5%), 'balanced', or 'standard' (10%,20%,30%)")
+                    help="Optimization focus: 'early' (1%%,5%%), 'balanced', or 'standard' (10%%,20%%,30%%)")
     ap.add_argument("--aggregation", type=str, default="weighted",
                     choices=["weighted", "rrf", "power"],
                     help="Aggregation method: weighted ranks, RRF, or power-transformed")
