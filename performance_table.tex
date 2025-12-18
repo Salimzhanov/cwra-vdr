@@ -1,0 +1,29 @@
+\begin{table*}[h]
+\centering
+\caption{Hit recovery under scaffold-grouped nested CV on initial\_370 actives (candidate pool $N$=1601). Values are mean $\pm$ std across outer folds and repeats (outer\_splits=3, outer\_repeats=1).}
+\label{tab:fusion_performance_scaffold}
+\small
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+Category & Method & EF@10\% & Hits@10\% & Hits@20\% & Hits@30\% & Hits@100 \\
+ & & & (Top 161) & (Top 321) & (Top 481) & \\
+\midrule
+\multirow{9}{*}{\rotatebox[origin=c]{90}{\textit{Single Modality}}}
+ & GraphDTA-$K_\mathrm{d}$\textsuperscript{$\downarrow$} & 1.76 $\pm$ 0.71 & 26.0 $\pm$ 10.3 & 33.0 $\pm$ 10.1 & 51.0 $\pm$ 15.8 & 5.8 $\pm$ 2.6 \\
+ & GraphDTA-$K_\mathrm{i}$\textsuperscript{$\downarrow$} & 1.87 $\pm$ 0.29 & 27.5 $\pm$ 4.2 & 31.0 $\pm$ 7.0 & 49.0 $\pm$ 7.3 & 8.5 $\pm$ 1.7 \\
+ & GraphDTA-IC$_{50}$\textsuperscript{$\downarrow$} & 1.85 $\pm$ 0.51 & 27.2 $\pm$ 7.4 & 27.5 $\pm$ 3.5 & 45.2 $\pm$ 5.1 & 11.5 $\pm$ 4.9 \\
+ & MLT-LE p$K_\mathrm{d}$\textsuperscript{$\uparrow$} & 1.47 $\pm$ 0.49 & 21.5 $\pm$ 7.1 & 36.8 $\pm$ 1.0 & 53.8 $\pm$ 3.8 & 13.8 $\pm$ 2.5 \\
+ & AutoDock Vina\textsuperscript{$\downarrow$} & 0.53 $\pm$ 0.15 & 7.8 $\pm$ 2.2 & 26.5 $\pm$ 7.0 & 41.0 $\pm$ 5.6 & 4.5 $\pm$ 2.1 \\
+ & Boltz-2 affinity\textsuperscript{$\downarrow$} & 1.66 $\pm$ 0.39 & 24.5 $\pm$ 5.7 & 57.0 $\pm$ 13.3 & 76.5 $\pm$ 14.7 & 18.2 $\pm$ 4.3 \\
+ & Boltz-2 confidence\textsuperscript{$\uparrow$} & 1.74 $\pm$ 0.47 & 25.5 $\pm$ 6.8 & 58.2 $\pm$ 7.5 & 80.8 $\pm$ 9.5 & 21.2 $\pm$ 2.2 \\
+ & Uni-Mol similarity\textsuperscript{$\uparrow$} & 1.94 $\pm$ 1.35 & 28.5 $\pm$ 19.6 & 58.2 $\pm$ 7.5 & 80.8 $\pm$ 9.5 & 21.2 $\pm$ 2.2 \\
+ & TankBind affinity\textsuperscript{$\downarrow$} & 0.65 $\pm$ 0.35 & 9.5 $\pm$ 5.1 & 26.5 $\pm$ 7.0 & 41.0 $\pm$ 5.6 & 4.5 $\pm$ 2.1 \\
+\midrule
+\multirow{2}{*}{\rotatebox[origin=c]{90}{\textit{Fusion}}}
+ & Equal-weight & 2.05 $\pm$ 0.54 & 30.0 $\pm$ 7.9 & 40.2 $\pm$ 4.9 & 55.0 $\pm$ 10.4 & 17.5 $\pm$ 2.9 \\
+ & CWRA & 2.52 $\pm$ 0.79 & 36.8 $\pm$ 11.5 & 50.0 $\pm$ 9.5 & 76.2 $\pm$ 9.3 & 18.2 $\pm$ 3.8 \\
+\midrule
+\multicolumn{2}{l}{\textit{Expected at random}} & 1.00 & 18.25 & 36.50 & 54.75 & 11.40 \\
+\bottomrule
+\end{tabular}
+\end{table*}
