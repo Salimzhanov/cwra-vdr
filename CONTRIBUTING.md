@@ -6,8 +6,8 @@ Thank you for your interest in contributing to the CWRA (Calibrated Weighted Ran
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/Salimzhanov/cwra-vdr.git
-   cd cwra-vdr
+   git clone https://github.com/Salimzhanov/cwra-vdr-toolbox.git
+   cd cwra-vdr-toolbox
    ```
 
 2. **Create a virtual environment**
