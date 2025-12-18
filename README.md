@@ -21,16 +21,6 @@ A robust machine learning framework for combining multiple molecular docking and
 - [Citation](#citation)
 - [License](#license)
 
-## Features
-
-- **Multi-modal fusion**: Combines predictions from 9 different computational methods
-- **Optimized weighting**: Uses nested cross-validation to learn optimal modality weights
-- **Stability-focused**: Reduces overfitting through objective functions and CV design
-- **Comprehensive evaluation**: Provides detailed performance metrics across multiple enrichment factors
-- **Reproducible**: Deterministic results with fixed random seeds
-- **Extensible**: Easy to add new modalities or scoring functions
-- **Well-documented**: Complete documentation with examples and tutorials
-
 ## Installation
 
 ### From PyPI (Recommended)
@@ -133,7 +123,7 @@ cwra-vdr/
 └── LICENSE                        # MIT License
 ```
 
-**Computation**: MD simulations with enhanced sampling to compute binding affinities.
+**Computation**: MD simulations with binding affinities.
 
 **Installation**: Boltz-2 software suite.
 
