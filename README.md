@@ -1,6 +1,5 @@
 # CWRA: Calibrated Weighted Rank Aggregation for VDR Virtual Screening
 
-[![CI](https://github.com/Salimzhanov/cwra-vdr/actions/workflows/ci.yml/badge.svg)](https://github.com/Salimzhanov/cwra-vdr/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/cwra-vdr.svg)](https://pypi.org/project/cwra-vdr/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
