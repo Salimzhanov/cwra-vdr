@@ -1,6 +1,5 @@
 # CWRA: Calibrated Weighted Rank Aggregation for VDR Virtual Screening
 
-[![PyPI version](https://badge.fury.io/py/cwra-vdr.svg)](https://pypi.org/project/cwra-vdr/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
@@ -20,12 +19,6 @@ A framework for combining multiple molecular docking and binding affinity predic
 - [License](#license)
 
 ## Installation
-
-### From PyPI
-
-```bash
-pip install cwra-vdr
-```
 
 ### From Source
 
