@@ -109,29 +109,31 @@ cwra-vdr/
 
 ## Performance
 
-Results from scaffold-grouped nested CV on initial_365 actives. Values are mean ± std across 5-fold CV repeats.
-
+Hit recovery on full ranking of 1,602 compounds (365 initial_370 actives). EF@k% measures enrichment factor at top k% of the ranked database. Hits@k reports the number of actives found in the top k compounds.
 
 ### Method Comparison
 
 | Category | Method | EF@10% | Hits@10% | Hits@20% | Hits@30% |
 |----------|--------|--------|----------|----------|----------|
-| Single | GraphDTA-Kd ↓ | 2.05 ± 0.91 | 65.8 ± 29.2 | 12.8 ± 3.7 | 17.2 ± 6.0 |
-| Single | GraphDTA-Ki ↓ | 2.17 ± 0.89 | 69.7 ± 28.6 | 12.9 ± 4.9 | 18.2 ± 6.9 |
-| Single | GraphDTA-IC50 ↓ | 2.13 ± 0.89 | 68.4 ± 28.6 | 12.3 ± 5.6 | 18.2 ± 7.5 |
-| Single | MLT-LE pKd ↑ | 1.63 ± 0.96 | 52.3 ± 30.8 | 10.5 ± 3.8 | 16.2 ± 5.9 |
-| Single | AutoDock Vina ↓ | 0.60 ± 0.38 | 19.3 ± 12.2 | 5.9 ± 4.0 | 8.9 ± 5.7 |
-| Single | Boltz-2 affinity ↓ | 1.68 ± 0.71 | 53.9 ± 22.8 | 12.7 ± 12.1 | 16.9 ± 14.6 |
-| Single | Boltz-2 confidence ↑ | 1.73 ± 0.63 | 55.5 ± 20.2 | 13.5 ± 6.2 | 19.1 ± 10.5 |
-| Single | Uni-Mol similarity ↑ | 2.18 ± 1.87 | 70.0 ± 60.0 | 14.0 ± 8.9 | 17.6 ± 9.3 |
-| Single | TankBind affinity ↓ | 0.73 ± 0.79 | 23.4 ± 25.4 | 8.2 ± 5.5 | 11.9 ± 6.1 |
-| Single | DrugBAN ↓ | 1.04 ± 0.65 | 33.3 ± 20.8 | 7.9 ± 8.0 | 11.6 ± 10.7 |
-| Single | MolTrans ↓ | 1.54 ± 0.60 | 49.4 ± 19.3 | 8.3 ± 3.0 | 13.2 ± 5.1 |
-| Fusion | Equal-weight | 2.07 ± 0.75 | 67.7 ± 24.5 | 14.5 ± 6.3 | 18.9 ± 8.6 |
-| Fusion | **CWRA-early** | **2.41 ± 0.89** | **78.9 ± 29.1** | 14.8 ± 5.7 | **19.2 ± 7.2** |
-| Baseline | Random | 1.40 ± 0.59 | 44.9 ± 18.9 | 9.7 ± 5.0 | 14.0 ± 7.1 |
+| Single | GraphDTA-Kd  | 1.40 | 51 | 100 | 138 |
+| Single | GraphDTA-Ki  | 1.54 | 56 | 96 | 138 |
+| Single | GraphDTA-IC50  | 1.48 | 54 | 100 | 136 |
+| Single | MLT-LE pKd  | 1.26 | 46 | 79 | 126 |
+| Single | AutoDock Vina  | 1.23 | 45 | 96 | 146 |
+| Single | Boltz-2 affinity  | 1.45 | 53 | 98 | 135 |
+| Single | Boltz-2 confidence  | 1.48 | 54 | 93 | 149 |
+| Single | Uni-Mol similarity  | 1.56 | 57 | 104 | 145 |
+| Single | TankBind affinity  | 0.88 | 32 | 68 | 118 |
+| Single | DrugBAN  | 1.29 | 47 | 90 | 125 |
+| Single | MolTrans  | 1.07 | 39 | 69 | 107 |
+| Fusion | Equal-weight | 1.81 | 66 | 115 | 159 |
+| Fusion | **CWRA** | **2.06** | **75** | **122** | **167** |
+| Baseline | *Expected at random* | 1.00 | 36.5 | 72.9 | 109.4 |
 
-CWRA-early outperforms equal-weight fusion and all individual modalities on EF@10% and Hits@10%.
+**Key Results:**
+- CWRA achieves **EF@10% = 2.06**, outperforming all single modalities and equal-weight fusion
+- CWRA recovers **75 actives** (21%) in top 10%, **122 actives** (33%) in top 20%, **167 actives** (46%) in top 30%
+- Best single modality (Uni-Mol similarity) achieves only 57 hits at 10% vs CWRA's 75 hits (+32%)
 
 ## Usage
 
@@ -139,15 +141,17 @@ CWRA-early outperforms equal-weight fusion and all individual modalities on EF@1
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--csv` | `labeled_raw_modalities.csv` | Input CSV with modalities + SMILES + source |
-| `--outer_splits` | `10` | Number of outer CV folds |
-| `--outer_repeats` | `5` | Number of outer CV repeats |
+| `--csv` | `data/labeled_raw_modalities.csv` | Input CSV with modalities + SMILES + source |
+| `--outer_splits` | `5` | Number of outer CV folds |
+| `--outer_repeats` | `3` | Number of outer CV repeats |
+| `--inner_splits` | `3` | Number of inner CV folds |
 | `--seed` | `42` | Random seed |
-| `--risk_beta` | `0.5` | Risk aversion parameter (mean - beta*std) |
+| `--risk_beta` | `0.3` | Risk aversion parameter (mean - beta*std) |
 | `--focus` | `early` | Optimization focus: 'early', 'balanced', 'standard' |
-| `--aggregation` | `weighted` | Aggregation: 'weighted', 'rrf', 'power' |
-| `--output_prefix` | `cwrad` | Prefix for output files |
+| `--grid_mode` | `wide` | Grid size: 'narrow', 'default', 'wide', 'extended' |
+| `--output_prefix` | `results` | Prefix for output files |
 | `--top_n` | `25` | Number of top/bottom structures to extract |
+| `--n_jobs` | `-1` | Parallel jobs (-1 for all cores) |
 
 ### Input Format
 
@@ -159,10 +163,12 @@ The input CSV requires:
 ### Output Files
 
 - `{prefix}_table5_weights.csv`: Modality weights and individual performance
-- `{prefix}_table6_performance.csv`: Performance comparison
-- `{prefix}_full_ranking.csv`: Complete ranking
-- `{prefix}_top{top_n}_G.csv`: Top generated compounds
-- `{prefix}_bottom{top_n}_G.csv`: Bottom generated compounds
+- `{prefix}_table6_performance.csv`: Performance comparison across methods
+- `{prefix}_full_ranking.csv`: Complete ranking of all compounds
+- `{prefix}_top{top_n}_G.csv`: Top generated compounds by CWRA rank
+- `{prefix}_bottom{top_n}_G.csv`: Bottom generated compounds by CWRA rank
+- `{prefix}_hyperparameters.csv`: Selected hyperparameters
+- `{prefix}_latex_tables.tex`: LaTeX formatted tables for manuscript
 
 ## Metrics
 

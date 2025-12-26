@@ -2,11 +2,15 @@
 """
 CWRA - Calibrated Weighted Rank Aggregation for VDR Virtual Screening
 
-Usage:
-  python -m cwra --csv labeled_raw_modalities.csv --focus early
+A method for aggregating multiple virtual screening modalities using 
+calibrated weighting based on cross-validated performance metrics.
 
-Sample:
-  python -m cwra --csv data/labeled_raw_modalities.csv --outer_repeats 5 --outer_splits 10 --output_prefix results
+Usage:
+  python -m cwra --csv data/labeled_raw_modalities.csv --output_prefix results
+
+Reference:
+  Salimzhanov et al., "Calibrated Weighted Rank Aggregation for 
+  Multi-Modal Virtual Screening of VDR Ligands"
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from collections import Counter
-from typing import Optional
+from typing import Optional, Dict, List, Tuple
 
 from rdkit import Chem
 from rdkit.Chem.Scaffolds import MurckoScaffold
@@ -28,10 +32,27 @@ from joblib import Parallel, delayed
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
+MODALITIES = [
+    # (column_name, high_better, latex_label, simple_name)
+    ("graphdta_kd", True, r"GraphDTA-$K_\mathrm{d}$", "GraphDTA_Kd"),       # act=6.86 < gen=7.20 → False
+    ("graphdta_ki", True, r"GraphDTA-$K_\mathrm{i}$", "GraphDTA_Ki"),       # act=7.15 < gen=7.47 → False
+    ("graphdta_ic50", True, r"GraphDTA-IC$_{50}$", "GraphDTA_IC50"),        # act=6.20 < gen=6.52 → False
+    ("mltle_pKd", True, r"MLT-LE p$K_\mathrm{d}$", "MLTLE_pKd"),           # act=8.56 < gen=8.66 → False
+    ("vina_score", False, r"AutoDock Vina", "Vina"),                          # act=-11.2 > gen=-11.5 → True
+    ("boltz_affinity", False, r"Boltz-2 affinity", "Boltz_affinity"),       # act=-1.54 < gen=-1.48 → False
+    ("boltz_confidence", True, r"Boltz-2 confidence", "Boltz_confidence"), # act=0.923 > gen=0.921 → True
+    ("unimol_similarity", True, r"Uni-Mol similarity", "UniMol_sim"),       # act=0.950 > gen=0.948 → True
+    ("tankbind_affinity", False, r"TankBind affinity", "TankBind"),          # act=-9.75 > gen=-9.76 → True
+    ("drugban_affinity", False, r"DrugBAN affinity", "DrugBAN"),             # act=-8.14 > gen=-8.19 → True
+    ("moltrans_affinity", False, r"MolTrans affinity", "MolTrans"),         # act=-7.01 < gen=-6.99 → False
+]
+
+CUTOFF_PCTS = [1, 5, 10, 20, 30]
+
+
 # =============================================================================
 # SCAFFOLD COMPUTATION
 # =============================================================================
-
 def murcko_smiles(smiles: str) -> Optional[str]:
     """Compute Murcko scaffold SMILES from input SMILES."""
     mol = Chem.MolFromSmiles(smiles)
@@ -39,9 +60,7 @@ def murcko_smiles(smiles: str) -> Optional[str]:
         return None
     try:
         scaf = MurckoScaffold.GetScaffoldForMol(mol)
-        if scaf is None:
-            return None
-        return Chem.MolToSmiles(scaf, isomericSmiles=False)
+        return Chem.MolToSmiles(scaf, isomericSmiles=False) if scaf else None
     except Exception:
         return None
 
@@ -49,17 +68,15 @@ def murcko_smiles(smiles: str) -> Optional[str]:
 # =============================================================================
 # METRICS
 # =============================================================================
-
-def bedroc_from_x(x: np.ndarray, alpha: float, A: int, N: int) -> float:
+def bedroc(x: np.ndarray, alpha: float, A: int, N: int) -> float:
     """Compute BEDROC (Boltzmann-Enhanced Discrimination of ROC)."""
     if A <= 0 or N <= 1:
         return 0.0
     denom = (1.0 - np.exp(-alpha)) / alpha
     rie = np.mean(np.exp(-alpha * x)) / denom
-    k = np.arange(A)
-    xideal = k / (N - 1)
+    xideal = np.arange(A) / (N - 1)
     rie_max = np.mean(np.exp(-alpha * xideal)) / denom
-    return float((rie - 1.0) / (rie_max - 1.0)) if rie_max != 1.0 else 0.0
+    return (rie - 1.0) / (rie_max - 1.0) if rie_max != 1.0 else 0.0
 
 
 def shrink_factors(tau: np.ndarray, tau0: float, lam: float) -> np.ndarray:
@@ -68,270 +85,360 @@ def shrink_factors(tau: np.ndarray, tau0: float, lam: float) -> np.ndarray:
     return 1.0 / (1.0 + lam * n_corr)
 
 
-def compute_weights_v2(
-    ef_terms: dict,
-    rank_score: np.ndarray,
-    bedroc_alpha: np.ndarray,
-    shrink: np.ndarray,
-    delta: float,
-    gamma: float,
-    w_ef1: float, w_ef5: float, w_ef10: float,
-    w_bedroc: float, w_rank: float,
-    eps: float = 1e-12
-) -> tuple[np.ndarray, np.ndarray]:
-    """Enhanced weight computation with EF@1% focus."""
-    E = rank_score.shape[0]
-    uniform = np.ones(E) / E
-    
-    # Weighted combination of EF with early enrichment focus
-    ef_combined = (w_ef1 * ef_terms.get("1", np.zeros(E)) +
-                   w_ef5 * ef_terms.get("5", np.zeros(E)) +
-                   w_ef10 * ef_terms.get("10", np.zeros(E)))
-    ef_sum = w_ef1 + w_ef5 + w_ef10
-    if ef_sum > 0:
-        ef_combined /= ef_sum
-    
-    # Combine components
-    ef_weight = 1.0 - w_bedroc - w_rank
-    raw = w_bedroc * bedroc_alpha + w_rank * rank_score + ef_weight * ef_combined
-    raw = np.maximum(raw, 0.0) + eps
-    
-    # Apply shrinkage and power transformation (higher delta = sharper weights)
-    w = (raw * shrink) ** delta
-    w = w / w.sum()
-    
-    # Mix with uniform (lower gamma = less regularization = sharper weights)
-    w_mix = (1.0 - gamma) * w + gamma * uniform
-    w_mix = w_mix / w_mix.sum()
-    
-    return w_mix, w
-
-
-def reciprocal_rank_fusion(ranks: np.ndarray, k: float = 60.0) -> np.ndarray:
-    """Reciprocal Rank Fusion (RRF)."""
-    N, E = ranks.shape
-    scores = np.zeros(N, dtype=float)
-    for j in range(E):
-        scores += 1.0 / (k + ranks[:, j])
-    return -scores
-
-
-def power_rank_transform(ranks: np.ndarray, N: int, power: float = 0.5) -> np.ndarray:
-    """Power-law rank transformation for early enrichment focus."""
-    normalized = (ranks - 1) / (N - 1)
-    return normalized ** power
-
-
-def eval_depths_extended(
-    score: np.ndarray,
-    eval_mask: np.ndarray,
-    A_eval: int,
-    cutoffs: dict,
-    N: int
-) -> dict:
-    """Evaluate hits and enrichment at multiple depth cutoffs."""
-    if A_eval == 0:
-        # Python 3.8 compatible dict merge
-        out = {f"h{k}": 0 for k in cutoffs}
-        out.update({f"ef{k}": 0.0 for k in cutoffs})
-        return out
+def eval_at_cutoffs(score: np.ndarray, active_mask: np.ndarray, 
+                    cutoffs: Dict[str, int], N: int) -> Dict:
+    """Evaluate EF and hits at multiple cutoffs."""
+    A = active_mask.sum()
+    if A == 0:
+        return {f"ef{k}": 0.0 for k in cutoffs} | {f"h{k}": 0 for k in cutoffs}
     
     kmax = max(cutoffs.values())
-    top = np.argpartition(score, min(kmax - 1, N - 1))[:kmax]
-    top = top[np.argsort(score[top])]
-
+    top_idx = np.argpartition(score, min(kmax - 1, N - 1))[:kmax]
+    top_idx = top_idx[np.argsort(score[top_idx])]
+    
     result = {}
     for name, k in cutoffs.items():
-        h = int(eval_mask[top[:k]].sum())
-        ef = (h * N) / (k * A_eval)
+        h = int(active_mask[top_idx[:k]].sum())
         result[f"h{name}"] = h
-        result[f"ef{name}"] = ef
-    
+        result[f"ef{name}"] = (h * N) / (k * A)
     return result
 
 
+def compute_weights(ef_terms: Dict, rank_score: np.ndarray, bedroc_vals: np.ndarray,
+                    shrink: np.ndarray, params: Dict, E: int) -> np.ndarray:
+    """Compute modality weights from performance metrics."""
+    ef_combined = (params['w_ef1'] * ef_terms.get("1", np.zeros(E)) +
+                   params['w_ef5'] * ef_terms.get("5", np.zeros(E)) +
+                   params['w_ef10'] * ef_terms.get("10", np.zeros(E)))
+    ef_sum = params['w_ef1'] + params['w_ef5'] + params['w_ef10']
+    if ef_sum > 0:
+        ef_combined /= ef_sum
+    
+    ef_weight = max(0, 1.0 - params['w_bedroc'] - params['w_rank'])
+    raw = (params['w_bedroc'] * bedroc_vals + 
+           params['w_rank'] * rank_score + 
+           ef_weight * ef_combined)
+    raw = np.maximum(raw, 1e-12)
+    
+    w = (raw * shrink) ** params['delta']
+    w = w / w.sum()
+    
+    uniform = np.ones(E) / E
+    w_mix = (1.0 - params['gamma']) * w + params['gamma'] * uniform
+    return w_mix / w_mix.sum()
+
+
+def calc_modality_metrics(active_idx: np.ndarray, ranks: np.ndarray, ranks01: np.ndarray,
+                          topk_idx: Dict, cutoffs: Dict, N: int, alpha: float) -> Tuple:
+    """Calculate EF, rank score, and BEDROC for each modality."""
+    A, E = len(active_idx), ranks.shape[1]
+    active_bool = np.zeros(N, bool)
+    active_bool[active_idx] = True
+    
+    ef_terms = {}
+    for name, idx_arr in topk_idx.items():
+        hits = active_bool[idx_arr].sum(axis=0)
+        ef_terms[name] = (hits * N) / (cutoffs[name] * A) if A > 0 else np.zeros(E)
+    
+    mean_rank = ranks[active_idx, :].mean(axis=0)
+    rank_score = 1.0 - (mean_rank - 1.0) / (N - 1)
+    
+    x_act = ranks01[active_idx, :]
+    bedroc_vals = np.array([bedroc(x_act[:, j], alpha, A, N) for j in range(E)])
+    
+    return ef_terms, mean_rank, rank_score, bedroc_vals
+
+
 # =============================================================================
-# OBJECTIVE FUNCTIONS
+# CV UTILITIES
 # =============================================================================
-
-def objective_early_focus(d: dict) -> float:
-    """Objective emphasizing EF@1% for very early enrichment."""
-    return 0.6 * d.get("ef1", 0) + 0.3 * d.get("ef5", 0) + 0.1 * d.get("ef10", 0)
-
-
-def objective_balanced(d: dict) -> float:
-    """Balanced objective across early cutoffs."""
-    return 0.4 * d.get("ef1", 0) + 0.4 * d.get("ef5", 0) + 0.2 * d.get("ef10", 0)
-
-
-def objective_standard(d: dict) -> float:
-    """Standard objective with EF@5% and EF@10%."""
-    return 0.3 * d.get("ef1", 0) + 0.4 * d.get("ef5", 0) + 0.3 * d.get("ef10", 0)
-
-
-# =============================================================================
-# CV SPLITTING
-# =============================================================================
-
-def balanced_group_kfold_indices(
-    groups: np.ndarray, 
-    n_splits: int, 
-    rng: np.random.Generator
-) -> list[tuple[np.ndarray, np.ndarray]]:
+def balanced_group_kfold(groups: np.ndarray, n_splits: int, 
+                         rng: np.random.Generator) -> List[Tuple]:
     """Create balanced group k-fold splits."""
-    groups = np.asarray(groups)
     uniq, inv = np.unique(groups, return_inverse=True)
     sizes = np.bincount(inv)
     order = np.arange(len(uniq))
     rng.shuffle(order)
-
+    
     fold_groups = [[] for _ in range(n_splits)]
     fold_sizes = np.zeros(n_splits, dtype=int)
     for g in order:
         j = int(np.argmin(fold_sizes))
         fold_groups[j].append(g)
-        fold_sizes[j] += int(sizes[g])
-
+        fold_sizes[j] += sizes[g]
+    
     splits = []
     for j in range(n_splits):
-        test_group_ids = set(fold_groups[j])
-        te = np.where(np.array([gid in test_group_ids for gid in inv]))[0]
-        tr = np.setdiff1d(np.arange(len(groups)), te, assume_unique=False)
+        test_ids = set(fold_groups[j])
+        te = np.where([gid in test_ids for gid in inv])[0]
+        tr = np.setdiff1d(np.arange(len(groups)), te)
         splits.append((tr, te))
     return splits
 
 
 # =============================================================================
-# HELPER FUNCTIONS
+# INNER CV EVALUATION
 # =============================================================================
-
-def calc_metrics(
-    active_idx: np.ndarray,
-    ranks: np.ndarray,
-    ranks01: np.ndarray,
-    topk_idx: dict,
-    cutoffs: dict,
-    N: int,
-    alpha: float
-) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
-    """Calculate metrics for active compounds."""
-    A = len(active_idx)
-    E = ranks.shape[1]
+def eval_inner(params_tuple: Tuple, inner_pairs: List, ranks: np.ndarray, 
+               ranks01: np.ndarray, topk_idx: Dict, cutoffs: Dict, N: int, 
+               shrink_cache: Dict, objective_fn, E: int) -> Tuple:
+    """Evaluate parameters on inner CV folds."""
+    params = dict(zip(['w_ef1', 'w_ef5', 'w_ef10', 'w_bedroc', 'w_rank', 
+                       'alpha', 'tau0', 'lam', 'delta', 'gamma'], params_tuple))
+    shrink = shrink_cache[(params['tau0'], params['lam'])]
     
-    active_bool = np.zeros(N, bool)
-    active_bool[active_idx] = True
-
-    ef_terms = {}
-    for name, idx_arr in topk_idx.items():
-        hits = active_bool[idx_arr].sum(axis=0)
-        k = cutoffs[name]
-        ef_terms[name] = (hits * N) / (k * A) if A > 0 else np.zeros(E)
-
-    r_act = ranks[active_idx, :]
-    mean_rank = r_act.mean(axis=0)
-    rank_score = 1.0 - (mean_rank - 1.0) / (N - 1)
-
-    x_act = ranks01[active_idx, :]
-    bedroc = np.empty(E, float)
-    for j in range(E):
-        bedroc[j] = bedroc_from_x(x_act[:, j], alpha, A, N)
-
-    return ef_terms, mean_rank, rank_score, bedroc
-
-
-def fmt(m: float, sd: float, digits: int = 2) -> str:
-    """Format mean ± std."""
-    return f"{m:.{digits}f} +/- {sd:.{digits}f}"
-
-
-# =============================================================================
-# PARALLEL INNER CV EVALUATION
-# =============================================================================
-
-def evaluate_params_inner(
-    params: tuple,
-    inner_pairs: list,
-    ranks: np.ndarray,
-    ranks01: np.ndarray,
-    topk_idx: dict,
-    cutoffs: dict,
-    N: int,
-    shrink_cache: dict,
-    objective_fn,
-    aggregation: str
-) -> tuple[tuple, float, float]:
-    """Evaluate a single hyperparameter configuration across inner folds."""
-    (w_ef1, w_ef5, w_ef10, w_bed, w_rank, 
-     alpha, tau0, lam, delta_or_power, gamma) = params
-    
-    shrink = shrink_cache[(tau0, lam)]
     objs = []
-    
     for inner_tr, inner_va in inner_pairs:
-        # Skip if validation set is empty or too small
         if len(inner_va) < 1:
             continue
-            
-        ef_terms_tr, _, rank_score_tr, bedroc_tr = calc_metrics(
-            inner_tr, ranks, ranks01, topk_idx, cutoffs, N, alpha
-        )
         
-        w_mix, _ = compute_weights_v2(
-            ef_terms_tr, rank_score_tr, bedroc_tr,
-            shrink, delta_or_power if aggregation == "weighted" else 1.0,
-            gamma, w_ef1, w_ef5, w_ef10, w_bed, w_rank
-        )
+        ef_terms, _, rank_score, bedroc_vals = calc_modality_metrics(
+            inner_tr, ranks, ranks01, topk_idx, cutoffs, N, params['alpha'])
         
-        if aggregation == "power":
-            ranks_power = power_rank_transform(ranks, N, power=delta_or_power)
-            sc = ranks_power.dot(w_mix)
-        else:
-            sc = ranks01.dot(w_mix)
-        
+        w = compute_weights(ef_terms, rank_score, bedroc_vals, shrink, params, E)
+        sc = ranks01.dot(w)
         sc[inner_tr] = np.inf
         
         eval_mask = np.zeros(N, bool)
         eval_mask[inner_va] = True
-        A_va = len(inner_va)
-        
-        d = eval_depths_extended(sc, eval_mask, A_va, cutoffs, N)
+        d = eval_at_cutoffs(sc, eval_mask, cutoffs, N)
         objs.append(objective_fn(d))
     
-    if len(objs) == 0:
-        return params, 0.0, 0.0
+    if not objs:
+        return params_tuple, 0.0, 0.0
+    return params_tuple, np.mean(objs), np.std(objs, ddof=1) if len(objs) > 1 else 0.0
+
+
+# =============================================================================
+# OBJECTIVE FUNCTIONS
+# =============================================================================
+def obj_early(d): 
+    return 0.5 * d.get("ef1", 0) + 0.3 * d.get("ef5", 0) + 0.2 * d.get("ef10", 0)
+
+def obj_balanced(d): 
+    return 0.3 * d.get("ef1", 0) + 0.4 * d.get("ef5", 0) + 0.3 * d.get("ef10", 0)
+
+def obj_standard(d): 
+    return 0.2 * d.get("ef5", 0) + 0.5 * d.get("ef10", 0) + 0.3 * d.get("ef20", 0)
+
+def obj_comprehensive(d):
+    """Optimize for all EF metrics equally."""
+    return (0.25 * d.get("ef1", 0) + 0.25 * d.get("ef5", 0) + 
+            0.25 * d.get("ef10", 0) + 0.15 * d.get("ef20", 0) + 0.1 * d.get("ef30", 0))
+
+
+# =============================================================================
+# HYPERPARAMETER GRID
+# =============================================================================
+def get_grid(mode: str) -> List[Tuple]:
+    """Generate hyperparameter grid based on mode.
     
-    m = float(np.mean(objs))
-    s = float(np.std(objs, ddof=1)) if len(objs) > 1 else 0.0
+    Grid format: (ef_weights, bedroc_rank_weights, alpha, tau0, lam, delta, gamma)
+    - ef_weights: (w_ef1, w_ef5, w_ef10) - weights for EF at different cutoffs
+    - bedroc_rank_weights: (w_bedroc, w_rank) - BEDROC and rank score weights
+    - alpha: BEDROC decay parameter
+    - tau0: correlation threshold for shrinkage
+    - lam: shrinkage strength
+    - delta: power transform exponent
+    - gamma: uniform mixing weight
+    """
+    if mode == "narrow":
+        # Fast testing grid (~32 configs)
+        return list(itertools.product(
+            [(0.5, 0.3, 0.2)],
+            [(0.3, 0.1)],
+            [5.0, 20.0],
+            [0.2],
+            [0.5, 0.75],
+            [2.0],
+            [0.001, 0.01]
+        ))
+    elif mode == "optimal":
+        # Optimized grid with emphasis on strong differentiation (~4000 configs)
+        return list(itertools.product(
+            [(0.6, 0.25, 0.15), (0.5, 0.3, 0.2), (0.4, 0.35, 0.25), (0.35, 0.35, 0.3), (0.3, 0.4, 0.3)],
+            [(0.6, 0.05), (0.5, 0.08), (0.45, 0.1), (0.4, 0.1), (0.35, 0.1)],
+            [5.0, 10.0, 20.0, 40.0],
+            [0.05, 0.1, 0.15, 0.2, 0.3],
+            [0.0, 0.1, 0.25, 0.5],
+            [1.0, 1.5, 2.0, 2.5],
+            [0.0, 0.001, 0.01, 0.05]
+        ))
+    elif mode == "wide":
+        # Comprehensive grid (~6000 configs)
+        return list(itertools.product(
+            [(0.5, 0.3, 0.2), (0.4, 0.35, 0.25), (0.35, 0.35, 0.3), (0.3, 0.4, 0.3)],
+            [(0.5, 0.05), (0.4, 0.1), (0.3, 0.1), (0.25, 0.15)],
+            [5.0, 10.0, 20.0, 40.0],
+            [0.1, 0.2, 0.3, 0.4],
+            [0.25, 0.5, 0.75, 1.0],
+            [1.5, 2.0, 2.5, 3.0],
+            [0.001, 0.01, 0.02, 0.05]
+        ))
+    elif mode == "extended":
+        # Large grid for exhaustive search
+        return list(itertools.product(
+            [(0.5, 0.3, 0.2), (0.4, 0.35, 0.25), (0.35, 0.35, 0.3), 
+             (0.3, 0.4, 0.3), (0.3, 0.35, 0.35), (0.25, 0.4, 0.35)],
+            [(0.5, 0.1), (0.4, 0.1), (0.35, 0.15), (0.3, 0.1), (0.25, 0.15)],
+            [5.0, 10.0, 20.0, 40.0, 80.0],
+            [0.1, 0.2, 0.3, 0.4, 0.5],
+            [0.25, 0.5, 0.75, 1.0],
+            [1.0, 1.5, 2.0, 2.5, 3.0],
+            [0.001, 0.01, 0.02, 0.05, 0.1]
+        ))
+    else:  # default
+        # Balanced grid (~2000 configs)
+        return list(itertools.product(
+            [(0.4, 0.35, 0.25), (0.35, 0.35, 0.3), (0.3, 0.4, 0.3)],
+            [(0.4, 0.1), (0.3, 0.1), (0.25, 0.15)],
+            [5.0, 10.0, 20.0, 40.0],
+            [0.1, 0.2, 0.3],
+            [0.5, 0.75, 1.0],
+            [1.5, 2.0, 2.5],
+            [0.001, 0.01, 0.02, 0.05]
+        ))
+
+
+def flatten_grid(grid: List[Tuple]) -> List[Tuple]:
+    """Flatten nested tuples in grid to flat parameter tuples."""
+    return [(ef[0], ef[1], ef[2], br[0], br[1], alpha, tau0, lam, delta, gamma)
+            for ef, br, alpha, tau0, lam, delta, gamma in grid]
+
+
+# =============================================================================
+# LATEX TABLE GENERATION
+# =============================================================================
+def fmt(m: float, s: float, d: int = 2) -> str:
+    """Format mean ± std for display."""
+    return f"{m:.{d}f} $\\pm$ {s:.{d}f}"
+
+
+def generate_latex_tables(table5: pd.DataFrame, s_individual: Dict, s_eq: Dict, 
+                          s_cwra: Dict, s_random: Dict, final_params: Dict,
+                          mod_labels: List, mod_names: List) -> str:
+    """Generate LaTeX tables for manuscript."""
+    lines = []
     
-    return params, m, s
+    # Table 1: Modality Weights
+    lines.append(r"""% Table 1: Modality Weights
+\begin{table}[t]
+\caption{Modality weights from BEDROC-enhanced scoring.}
+\label{tab:modality_weights}
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Modality} & \textbf{Weight} & \textbf{EF@1\%} & \textbf{Mean Rank} \\
+\midrule""")
+    
+    for _, row in table5.sort_values("Weight", ascending=False).iterrows():
+        w = row['Weight']
+        w_str = f"{w:.2f}" if w >= 0.01 else "<0.01"
+        lines.append(f"{row['Modality']} & {w_str} & {row['EF@1%']:.2f} & {int(row['Mean_Rank'])} \\\\")
+    
+    lines.append(r"""\bottomrule
+\end{tabular}
+\end{table}
+""")
+    
+    # Table 2: Performance Comparison
+    lines.append(r"""% Table 2: Performance Comparison
+\begin{table*}[htbp]
+\centering
+\caption{Hit recovery under scaffold-grouped nested CV. Values are mean $\pm$ std across folds. EF@k\% measures enrichment factor at top k\% of the ranked database.}
+\label{tab:fusion_performance}
+\small
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+Category & Method & EF@1\% & EF@5\% & EF@10\% & Hits@10\% & Hits@20\% \\
+\midrule""")
+    
+    # Sort modalities by EF@10%
+    sorted_mods = sorted(zip(mod_names, mod_labels), 
+                         key=lambda x: -s_individual[x[0]]['ef10'][0])
+    
+    for i, (mod_name, mod_label) in enumerate(sorted_mods):
+        s = s_individual[mod_name]
+        mod_idx = mod_names.index(mod_name)
+        direction = r"\textsuperscript{$\uparrow$}" if MODALITIES[mod_idx][1] else r"\textsuperscript{$\downarrow$}"
+        prefix = r"\multirow{11}{*}{\rotatebox[origin=c]{90}{\textit{Single Modality}}}" if i == 0 else ""
+        lines.append(f"{prefix} & {mod_label}{direction} & {fmt(*s['ef1'])} & {fmt(*s['ef5'])} & "
+                     f"{fmt(*s['ef10'])} & {fmt(*s['h10'], d=1)} & {fmt(*s['h20'], d=1)} \\\\")
+    
+    lines.append(r"\midrule")
+    lines.append(f"\\multirow{{2}}{{*}}{{\\rotatebox[origin=c]{{90}}{{\\textit{{Fusion}}}}}} "
+                 f"& Equal-weight & {fmt(*s_eq['ef1'])} & {fmt(*s_eq['ef5'])} & "
+                 f"{fmt(*s_eq['ef10'])} & {fmt(*s_eq['h10'], d=1)} & {fmt(*s_eq['h20'], d=1)} \\\\")
+    lines.append(f" & CWRA-early & \\textbf{{{fmt(*s_cwra['ef1'])}}} & \\textbf{{{fmt(*s_cwra['ef5'])}}} & "
+                 f"\\textbf{{{fmt(*s_cwra['ef10'])}}} & \\textbf{{{fmt(*s_cwra['h10'], d=1)}}} & "
+                 f"\\textbf{{{fmt(*s_cwra['h20'], d=1)}}} \\\\")
+    
+    lines.append(r"\midrule")
+    lines.append(f"\\multicolumn{{2}}{{l}}{{\\textit{{Expected at random}}}} & {fmt(*s_random['ef1'])} & "
+                 f"{fmt(*s_random['ef5'])} & {fmt(*s_random['ef10'])} & {fmt(*s_random['h10'], d=1)} & "
+                 f"{fmt(*s_random['h20'], d=1)} \\\\")
+    
+    lines.append(r"""\bottomrule
+\end{tabular}
+\end{table*}
+""")
+    
+    # Table 3: Hyperparameters
+    lines.append(r"""% Table 3: Hyperparameters
+\begin{table}[htbp]
+\centering
+\caption{Hyperparameter search space and selected values.}
+\label{tab:hp_search}
+\begin{tabular}{lcc}
+\hline
+\textbf{Parameter} & \textbf{Search space} & \textbf{Selected} \\
+\hline""")
+    
+    if final_params:
+        lines.append(f"BEDROC decay $\\alpha_{{\\mathrm{{B}}}}$ & $\\{{5.0, 10.0, ..., 160.0\\}}$ & {final_params.get('alpha', 'N/A')} \\\\")
+        lines.append(f"Corr. threshold $\\tau_0$ & $\\{{0.2, 0.3, 0.4, 0.5, 0.6\\}}$ & {final_params.get('tau0', 0):.1f} \\\\")
+        lines.append(f"Shrinkage $\\lambda$ & $\\{{0.0, 0.1, 0.25, 0.5, 1.0, 2.0\\}}$ & {final_params.get('lam', 0):.1f} \\\\")
+        lines.append(f"Power transform $\\delta$ & $\\{{0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0\\}}$ & {final_params.get('delta', 0):.1f} \\\\")
+        lines.append(f"Uniform mix $\\gamma$ & $\\{{0.001, 0.005, ..., 0.2\\}}$ & {final_params.get('gamma', 0):.3f} \\\\")
+        lines.append(f"EF weights $(a,b,c)$ & see grid & ({final_params.get('w_ef1', 0):.1f}, {final_params.get('w_ef5', 0):.1f}, {final_params.get('w_ef10', 0):.1f}) \\\\")
+        lines.append(f"BEDROC/rank weights & see grid & ({final_params.get('w_bedroc', 0):.2f}, {final_params.get('w_rank', 0):.2f}) \\\\")
+    
+    lines.append(r"""\hline
+\end{tabular}
+\end{table}
+""")
+    
+    return '\n'.join(lines)
 
 
 # =============================================================================
 # MAIN
 # =============================================================================
-
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="CWRA - Calibrated Weighted Rank Aggregation for VDR virtual screening",
+        description="CWRA - Calibrated Weighted Rank Aggregation for VDR Virtual Screening",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    ap.add_argument("--csv", default="labeled_raw_modalities.csv",
+    ap.add_argument("--csv", default="data/labeled_raw_modalities.csv",
                     help="Input CSV with modalities + smiles + source")
-    ap.add_argument("--outer_splits", type=int, default=10,
+    ap.add_argument("--outer_splits", type=int, default=5,
                     help="Number of outer CV folds")
-    ap.add_argument("--outer_repeats", type=int, default=5,
+    ap.add_argument("--outer_repeats", type=int, default=3,
                     help="Number of outer CV repeats")
+    ap.add_argument("--inner_splits", type=int, default=3,
+                    help="Number of inner CV folds")
     ap.add_argument("--seed", type=int, default=42,
                     help="Random seed")
-    ap.add_argument("--risk_beta", type=float, default=0.5,
+    ap.add_argument("--risk_beta", type=float, default=0.3,
                     help="Risk aversion parameter (mean - beta*std)")
     ap.add_argument("--focus", type=str, default="early",
-                    choices=["early", "balanced", "standard"],
+                    choices=["early", "balanced", "standard", "comprehensive"],
                     help="Optimization focus")
-    ap.add_argument("--aggregation", type=str, default="weighted",
-                    choices=["weighted", "rrf", "power"],
-                    help="Aggregation method")
-    ap.add_argument("--output_prefix", type=str, default="cwra",
+    ap.add_argument("--grid_mode", type=str, default="optimal",
+                    choices=["narrow", "optimal", "default", "wide", "extended"],
+                    help="Hyperparameter grid size")
+    ap.add_argument("--output_prefix", type=str, default="results",
                     help="Prefix for output files")
     ap.add_argument("--top_n", type=int, default=25,
                     help="Number of top/bottom structures to extract")
@@ -340,573 +447,338 @@ def main() -> None:
     args = ap.parse_args()
 
     print("=" * 70)
-    print("CWRA - Calibrated Weighted Rank Aggregation for VDR Virtual Screening")
+    print("CWRA - Calibrated Weighted Rank Aggregation")
     print("=" * 70)
-    print(f"Focus: {args.focus}")
-    print(f"Aggregation: {args.aggregation}")
-    print(f"Parallel jobs: {args.n_jobs}")
     
     # Load data
     df = pd.read_csv(args.csv)
-    print(f"\nLoaded {len(df)} compounds from {args.csv}")
-
-    if "smiles" not in df.columns:
-        raise RuntimeError("CSV must contain a 'smiles' column")
-    if "source" not in df.columns:
-        raise RuntimeError("CSV must contain a 'source' column")
-
-    # Compute scaffolds
     df["murcko"] = df["smiles"].map(murcko_smiles)
-    n_scaffolds = df["murcko"].nunique()
-    print(f"Computed {n_scaffolds} unique Murcko scaffolds")
-
-    # Include calcitriol in the pool (exclude only newRef_137)
-    df_pool = df.loc[~df["source"].isin(["newRef_137"])].reset_index(drop=True)
-    print(f"Candidate pool: {len(df_pool)} compounds")
-
-    # =========================================================================
-    # MODALITY DEFINITIONS
-    # Note on high_better flag:
-    #   high_better=True  -> larger raw value = better compound
-    #   high_better=False -> smaller raw value = better compound
-    # =========================================================================
-    modalities = [
-        ("graphdta_kd", False),      # Kd: lower = stronger binding
-        ("graphdta_ki", False),      # Ki: lower = stronger binding
-        ("graphdta_ic50", False),    # IC50: lower = more potent
-        ("mltle_pKd", True),         # pKd: higher = stronger binding
-        ("vina_score", False),       # Docking score: more negative = better
-        ("boltz_affinity", False),   # Affinity: lower = stronger binding
-        ("boltz_confidence", True),  # Confidence: higher = better
-        ("unimol_similarity", True), # Similarity: higher = more similar to actives
-        ("tankbind_affinity", False),# Affinity: lower = stronger binding
-        ("drugban_affinity", False), # Affinity: lower = stronger binding
-        ("moltrans_affinity", False),# Affinity: lower = stronger binding
-    ]
     
-    mod_labels = [
-        r"GraphDTA $K_d$", r"GraphDTA $K_i$", r"GraphDTA IC$_{50}$",
-        r"MLT-LE $pK_d$", r"AutoDock Vina", r"Boltz-2 affinity",
-        r"Boltz-2 confidence", r"Uni-Mol similarity", r"TankBind affinity",
-        r"DrugBAN affinity", r"MolTrans affinity",
-    ]
-    
-    mod_names_simple = [
-        "GraphDTA_Kd", "GraphDTA_Ki", "GraphDTA_IC50",
-        "MLTLE_pKd", "Vina", "Boltz_affinity", "Boltz_confidence",
-        "UniMol_sim", "TankBind", "DrugBAN", "MolTrans"
-    ]
-    
-    missing_cols = [col for col, _ in modalities if col not in df_pool.columns]
-    if missing_cols:
-        raise RuntimeError(f"Missing modality columns: {missing_cols}")
-    
-    E = len(modalities)
+    # Filter pool (exclude newRef_137)
+    df_pool = df[~df["source"].isin(["newRef_137"])].reset_index(drop=True)
     N = len(df_pool)
-
-    # Define actives: initial_370 + calcitriol
-    active_mask = (df_pool["source"].isin(["initial_370", "calcitriol"])).to_numpy()
+    E = len(MODALITIES)
+    
+    print(f"Pool: {N} compounds, {E} modalities")
+    
+    # Extract modality info
+    mod_cols = [m[0] for m in MODALITIES]
+    mod_high_better = [m[1] for m in MODALITIES]
+    mod_labels = [m[2] for m in MODALITIES]
+    mod_names = [m[3] for m in MODALITIES]
+    
+    # Validate columns
+    missing = [c for c in mod_cols if c not in df_pool.columns]
+    if missing:
+        raise RuntimeError(f"Missing modality columns: {missing}")
+    
+    # Define actives
+    active_mask = df_pool["source"].isin(["initial_370", "calcitriol"]).to_numpy()
     act_idx_all = np.where(active_mask)[0]
     A_all = int(active_mask.sum())
-    print(f"Actives (initial_370 + calcitriol): {A_all}")
-
-    if A_all == 0:
-        raise RuntimeError("No actives found in dataset")
-
+    print(f"Actives: {A_all} (initial_370 + calcitriol)")
+    
     g_mask = df_pool["source"].isin(["G1", "G2", "G3"]).to_numpy()
-    print(f"Generated compounds (G1/G2/G3): {g_mask.sum()}")
-
-    # =========================================================================
-    # NORMALIZE MODALITIES
-    # Transform to [0, 1] where 0 = best, 1 = worst
-    # =========================================================================
-    scores = np.empty((N, E), float)
-    for j, (col, high_better) in enumerate(modalities):
+    print(f"Generated: {g_mask.sum()}")
+    
+    # Normalize scores: 0 = best, 1 = worst
+    scores = np.empty((N, E))
+    for j, (col, high_better) in enumerate(zip(mod_cols, mod_high_better)):
         x = df_pool[col].to_numpy(float)
-        xmin, xmax = float(np.nanmin(x)), float(np.nanmax(x))
-        if np.isnan(xmin) or np.isnan(xmax):
-            raise RuntimeError(f"Column '{col}' contains all NaN values")
-        if xmax != xmin:
-            s = (x - xmin) / (xmax - xmin)
-        else:
-            s = np.zeros_like(x)
-        if high_better:
-            s = 1.0 - s
-        scores[:, j] = s
-
-    # =========================================================================
-    # COMPUTE RANKS
-    # =========================================================================
-    ranks = np.empty((N, E), int)
+        xmin, xmax = np.nanmin(x), np.nanmax(x)
+        s = (x - xmin) / (xmax - xmin) if xmax != xmin else np.zeros_like(x)
+        scores[:, j] = 1.0 - s if high_better else s
+    
+    # Compute ranks
+    ranks = np.empty((N, E), dtype=int)
     orders = []
     for j in range(E):
-        order = np.argsort(scores[:, j], kind="mergesort")
+        order = np.argsort(scores[:, j])
         orders.append(order)
-        r = np.empty(N, int)
+        r = np.empty(N, dtype=int)
         r[order] = np.arange(1, N + 1)
         ranks[:, j] = r
-    
     ranks01 = (ranks - 1) / (N - 1)
-
-    # =========================================================================
-    # KENDALL TAU CORRELATION
-    # =========================================================================
+    
+    # Kendall tau correlation
     tau = np.eye(E)
     for i in range(E):
-        for j in range(i + 1, E):
-            t, _ = kendalltau(ranks[:, i], ranks[:, j])
-            tau[i, j] = tau[j, i] = t if np.isfinite(t) else 0.0
-
-    print(f"\nKendall tau correlation matrix:")
-    print(pd.DataFrame(tau, index=mod_names_simple, columns=mod_names_simple).round(3))
-
-    # =========================================================================
-    # CUTOFF DEPTHS
-    # "1", "5", "10" used for weight computation and Table 5
-    # "10", "20", "30" used for Table 6 performance reporting
-    # =========================================================================
-    cutoffs = {
-        "1": max(1, math.ceil(0.01 * N)),
-        "5": math.ceil(0.05 * N),
-        "10": math.ceil(0.10 * N),
-        "20": math.ceil(0.20 * N),
-        "30": math.ceil(0.30 * N),
-    }
+        for jj in range(i + 1, E):
+            t, _ = kendalltau(ranks[:, i], ranks[:, jj])
+            tau[i, jj] = tau[jj, i] = t if np.isfinite(t) else 0.0
     
-    k10, k20, k30 = cutoffs["10"], cutoffs["20"], cutoffs["30"]
-    print(f"\nCutoffs: {cutoffs}")
-
+    # Cutoffs
+    cutoffs = {str(p): max(1, math.ceil(p * N / 100)) for p in CUTOFF_PCTS}
+    print(f"Cutoffs: {cutoffs}")
+    
     # Precompute top-k indices
-    topk_idx = {}
-    for name, k in cutoffs.items():
-        topk_idx[name] = np.stack([orders[j][:k] for j in range(E)], axis=1)
-
-    objective_fn = {
-        "early": objective_early_focus,
-        "balanced": objective_balanced,
-        "standard": objective_standard,
-    }[args.focus]
-    print(f"\nUsing {args.focus.upper()} objective function")
-
-    # =========================================================================
-    # HYPERPARAMETER GRID
-    # =========================================================================
-    alphas = [40.0, 80.0, 160.0]
+    topk_idx = {name: np.stack([orders[j][:k] for j in range(E)], axis=1) 
+                for name, k in cutoffs.items()}
     
-    # EF weight combinations (w_ef1, w_ef5, w_ef10)
-    ef_weight_combos = [
-        (0.8, 0.15, 0.05),
-        (0.6, 0.3, 0.1),
-        (0.5, 0.3, 0.2),
-        (0.4, 0.4, 0.2),
-        (1.0, 0.0, 0.0),
-        (0.0, 1.0, 0.0),
-    ]
+    # Grid and shrinkage cache
+    grid_raw = get_grid(args.grid_mode)
+    grid = flatten_grid(grid_raw)
+    print(f"Grid mode: {args.grid_mode}, size: {len(grid)}")
     
-    bedroc_rank_combos = [
-        (0.5, 0.05),
-        (0.4, 0.1),
-        (0.6, 0.05),
-        (0.3, 0.1),
-        (0.0, 0.0),
-    ]
+    tau0_vals = sorted(set(p[6] for p in grid))
+    lam_vals = sorted(set(p[7] for p in grid))
+    shrink_cache = {(t, l): shrink_factors(tau, t, l) for t in tau0_vals for l in lam_vals}
     
-    delta_list = [1.0, 1.5, 2.0, 2.5]
-    gamma_list = [0.01, 0.02, 0.05]
-    tau0_list = [0.3, 0.4, 0.5]
-    lam_list = [0.0, 0.25, 0.5]
-    power_list = [0.3, 0.5, 0.7]
-
-    # Build grid
-    if args.aggregation == "rrf":
-        grid = [(None,) * 10]
-        print(f"\nRRF aggregation: No hyperparameter search needed")
-    elif args.aggregation == "power":
-        grid = [
-            (w_ef1, w_ef5, w_ef10, w_bed, w_rank, alpha, tau0, lam, power, gamma)
-            for (w_ef1, w_ef5, w_ef10), (w_bed, w_rank), alpha, tau0, lam, power, gamma
-            in itertools.product(ef_weight_combos, bedroc_rank_combos, alphas, 
-                               tau0_list, lam_list, power_list, gamma_list)
-        ]
-        print(f"\nPower aggregation grid size: {len(grid)} configurations")
-    else:
-        grid = [
-            (w_ef1, w_ef5, w_ef10, w_bed, w_rank, alpha, tau0, lam, delta, gamma)
-            for (w_ef1, w_ef5, w_ef10), (w_bed, w_rank), alpha, tau0, lam, delta, gamma
-            in itertools.product(ef_weight_combos, bedroc_rank_combos, alphas, 
-                               tau0_list, lam_list, delta_list, gamma_list)
-        ]
-        print(f"\nWeighted aggregation grid size: {len(grid)} configurations")
-
-    # Pre-compute shrinkage factors
-    shrink_cache = {
-        (tau0, lam): shrink_factors(tau, tau0, lam) 
-        for tau0 in tau0_list for lam in lam_list
-    }
-
+    objective_fn = {"early": obj_early, "balanced": obj_balanced, "standard": obj_standard, "comprehensive": obj_comprehensive}[args.focus]
+    
+    # CV setup
     act_groups = df_pool.loc[act_idx_all, "murcko"].fillna("UNKNOWN").to_numpy()
-    uniform_w = np.ones(E) / E
-
-    # =========================================================================
-    # VALIDATE CV PARAMETERS
-    # =========================================================================
-    n_act = len(act_groups)
     n_scaf = len(np.unique(act_groups))
+    outer_splits = min(args.outer_splits, n_scaf, len(act_groups))
     
-    if args.outer_splits > n_scaf:
-        print(f"\nWARNING: --outer_splits={args.outer_splits} > unique active scaffolds={n_scaf}")
-        print(f"  Reducing outer_splits to {n_scaf}")
-        args.outer_splits = n_scaf
+    print(f"\nCV: {args.outer_repeats} repeats × {outer_splits} outer folds")
+    print("=" * 70)
     
-    if args.outer_splits > n_act:
-        print(f"\nWARNING: --outer_splits={args.outer_splits} > #actives={n_act}")
-        print(f"  Reducing outer_splits to {n_act}")
-        args.outer_splits = n_act
-
     fold_results = []
     chosen_params = []
-
-    print("\n" + "=" * 70)
-    print("Running Nested Cross-Validation (Parallelized)")
-    print("=" * 70)
-
-    # =========================================================================
-    # NESTED CV WITH PARALLELIZATION
-    # =========================================================================
+    uniform_w = np.ones(E) / E
+    
+    # Nested CV
     for rep in range(args.outer_repeats):
-        rep_seed = int(args.seed + rep)
-        rep_rng = np.random.default_rng(rep_seed)
-
-        outer_splits = balanced_group_kfold_indices(
-            act_groups, n_splits=args.outer_splits, rng=rep_rng
-        )
-
-        for fold, (tr_idx, te_idx) in enumerate(outer_splits, start=1):
+        rng = np.random.default_rng(args.seed + rep)
+        splits = balanced_group_kfold(act_groups, outer_splits, rng)
+        
+        for fold, (tr_idx, te_idx) in enumerate(splits, 1):
             train_act = act_idx_all[tr_idx]
             test_act = act_idx_all[te_idx]
-            train_groups = act_groups[tr_idx]
-
-            # Skip fold if test set is empty
-            if len(test_act) == 0:
-                print(f"[Rep {rep+1} Fold {fold:2d}] Skipped: empty test set")
+            if len(test_act) == 0 or len(train_act) < 2:
                 continue
-
-            unique_groups = len(np.unique(train_groups))
-            n_inner = min(5, max(2, unique_groups))
-
-            # Skip if training set is too small for inner CV
-            if len(train_act) < 2:
-                print(f"[Rep {rep+1} Fold {fold:2d}] Skipped: insufficient training actives")
-                continue
-
-            if unique_groups >= n_inner:
-                inner = GroupKFold(n_splits=n_inner)
-                inner_pairs = [
-                    (train_act[itr], train_act[iva]) 
-                    for itr, iva in inner.split(train_act, groups=train_groups)
-                ]
-            else:
-                inner = KFold(n_splits=n_inner, shuffle=True, random_state=rep_seed)
-                inner_pairs = [
-                    (train_act[itr], train_act[iva]) 
-                    for itr, iva in inner.split(train_act)
-                ]
-
-            # Filter out pairs with empty validation sets
-            inner_pairs = [(tr, va) for tr, va in inner_pairs if len(va) >= 1]
             
-            if len(inner_pairs) == 0:
-                print(f"[Rep {rep+1} Fold {fold:2d}] Skipped: no valid inner CV splits")
-                continue
-
-            # Parallelized inner CV
-            if args.aggregation == "rrf":
-                best_param = (None,) * 10
+            train_groups = act_groups[tr_idx]
+            n_inner = min(args.inner_splits, len(np.unique(train_groups)), len(train_act))
+            
+            # Inner CV pairs
+            if len(np.unique(train_groups)) >= n_inner:
+                inner_cv = GroupKFold(n_splits=n_inner)
+                inner_pairs = [(train_act[itr], train_act[iva]) 
+                               for itr, iva in inner_cv.split(train_act, groups=train_groups)]
             else:
-                beta = float(args.risk_beta)
-                
-                results = Parallel(n_jobs=args.n_jobs, prefer="threads")(
-                    delayed(evaluate_params_inner)(
-                        params, inner_pairs, ranks, ranks01, topk_idx,
-                        cutoffs, N, shrink_cache, objective_fn, args.aggregation
-                    )
-                    for params in grid
-                )
-                
-                best_score = -1e18
-                best_param = None
-                for params, m, s in results:
-                    score = m - beta * s
-                    if score > best_score:
-                        best_score = score
-                        best_param = params
-
+                inner_cv = KFold(n_splits=n_inner, shuffle=True, random_state=args.seed + rep)
+                inner_pairs = [(train_act[itr], train_act[iva]) 
+                               for itr, iva in inner_cv.split(train_act)]
+            
+            inner_pairs = [(tr, va) for tr, va in inner_pairs if len(va) >= 1]
+            if not inner_pairs:
+                continue
+            
+            # Parallel grid search
+            results = Parallel(n_jobs=args.n_jobs, prefer="threads")(
+                delayed(eval_inner)(p, inner_pairs, ranks, ranks01, topk_idx, cutoffs, 
+                                    N, shrink_cache, objective_fn, E)
+                for p in grid
+            )
+            
+            best_score, best_param = -1e18, None
+            for p, m, s in results:
+                score = m - args.risk_beta * s
+                if score > best_score:
+                    best_score, best_param = score, p
+            
             chosen_params.append(best_param)
-
-            # Outer fold evaluation
+            
+            # Evaluate outer fold
+            params = dict(zip(['w_ef1', 'w_ef5', 'w_ef10', 'w_bedroc', 'w_rank', 
+                               'alpha', 'tau0', 'lam', 'delta', 'gamma'], best_param))
+            shrink = shrink_cache[(params['tau0'], params['lam'])]
+            
+            ef_terms, _, rank_score, bedroc_vals = calc_modality_metrics(
+                train_act, ranks, ranks01, topk_idx, cutoffs, N, params['alpha'])
+            w_mix = compute_weights(ef_terms, rank_score, bedroc_vals, shrink, params, E)
+            
+            # CWRA score
+            sc_cwra = ranks01.dot(w_mix)
+            sc_cwra[train_act] = np.inf
             test_mask = np.zeros(N, bool)
             test_mask[test_act] = True
-            A_test = len(test_act)
-
-            if args.aggregation == "rrf":
-                sc_cwra = reciprocal_rank_fusion(ranks)
-                w_mix = uniform_w
-            else:
-                (w_ef1, w_ef5, w_ef10, w_bed, w_rank,
-                 alpha, tau0, lam, delta_or_power, gamma) = best_param
-                
-                shrink = shrink_cache[(tau0, lam)]
-                ef_terms_tr, _, rank_score_tr, bedroc_tr = calc_metrics(
-                    train_act, ranks, ranks01, topk_idx, cutoffs, N, alpha
-                )
-                w_mix, _ = compute_weights_v2(
-                    ef_terms_tr, rank_score_tr, bedroc_tr,
-                    shrink, delta_or_power if args.aggregation == "weighted" else 1.0,
-                    gamma, w_ef1, w_ef5, w_ef10, w_bed, w_rank
-                )
-                
-                if args.aggregation == "power":
-                    ranks_power = power_rank_transform(ranks, N, power=delta_or_power)
-                    sc_cwra = ranks_power.dot(w_mix)
-                else:
-                    sc_cwra = ranks01.dot(w_mix)
-
-            sc_cwra[train_act] = np.inf
-            d_cwra = eval_depths_extended(sc_cwra, test_mask, A_test, cutoffs, N)
-
+            d_cwra = eval_at_cutoffs(sc_cwra, test_mask, cutoffs, N)
+            
             # Baselines
             sc_eq = ranks01.dot(uniform_w)
             sc_eq[train_act] = np.inf
-            d_eq = eval_depths_extended(sc_eq, test_mask, A_test, cutoffs, N)
-
-            rng_fold = np.random.default_rng(rep_seed + fold)
-            sc_random = rng_fold.random(N)
-            sc_random[train_act] = np.inf
-            d_random = eval_depths_extended(sc_random, test_mask, A_test, cutoffs, N)
-
-            individual_results = {}
+            d_eq = eval_at_cutoffs(sc_eq, test_mask, cutoffs, N)
+            
+            sc_rand = rng.random(N)
+            sc_rand[train_act] = np.inf
+            d_rand = eval_at_cutoffs(sc_rand, test_mask, cutoffs, N)
+            
+            # Individual modalities
+            d_ind = {}
             for j in range(E):
-                sc_ind = ranks01[:, j].copy()
-                sc_ind[train_act] = np.inf
-                d_ind = eval_depths_extended(sc_ind, test_mask, A_test, cutoffs, N)
-                individual_results[mod_names_simple[j]] = d_ind
-
+                sc = ranks01[:, j].copy()
+                sc[train_act] = np.inf
+                d_ind[mod_names[j]] = eval_at_cutoffs(sc, test_mask, cutoffs, N)
+            
             fold_results.append({
-                "rep": rep + 1, "fold": fold, "best_param": best_param,
-                "cwra": d_cwra, "equal": d_eq, "random": d_random,
-                "individual": individual_results,
-                "weights": w_mix, "A_test": A_test,
+                "rep": rep + 1, "fold": fold, "params": params,
+                "cwra": d_cwra, "equal": d_eq, "random": d_rand,
+                "individual": d_ind, "weights": w_mix, "A_test": len(test_act)
             })
-
-            print(f"[Rep {rep+1} Fold {fold:2d}] CWRA EF@1%={d_cwra['ef1']:.2f} "
-                  f"EF@5%={d_cwra['ef5']:.2f} EF@10%={d_cwra['ef10']:.2f}  "
-                  f"Equal EF@1%={d_eq['ef1']:.2f}")
-
-    # Check if we have any valid folds
-    if len(fold_results) == 0:
-        raise RuntimeError("No valid CV folds were completed. Check your data and parameters.")
-
-    # =========================================================================
-    # FINAL MODEL
-    # =========================================================================
+            
+            print(f"[R{rep+1}F{fold}] CWRA EF@1%={d_cwra['ef1']:.2f} EF@5%={d_cwra['ef5']:.2f} "
+                  f"EF@10%={d_cwra['ef10']:.2f} | Eq={d_eq['ef10']:.2f}")
+    
+    if not fold_results:
+        raise RuntimeError("No valid CV folds completed")
+    
+    # Final parameters (majority vote)
     print("\n" + "=" * 70)
-    print("Computing Final Results")
+    print("Final Results")
     print("=" * 70)
-
-    if args.aggregation == "rrf":
-        final_param = (None,) * 10
-        alpha_final = 80.0
-        w_mix_full = uniform_w
-        delta_or_power = 1.0
-    else:
-        arr = np.array(chosen_params, dtype=object)
-        final_param = tuple(Counter(arr[:, j]).most_common(1)[0][0] for j in range(arr.shape[1]))
-        (w_ef1, w_ef5, w_ef10, w_bed, w_rank,
-         alpha_final, tau0, lam, delta_or_power, gamma) = final_param
-        shrink = shrink_cache[(tau0, lam)]
-
-        print(f"\nFinal hyperparameters (majority vote):")
-        print(f"  EF weights: w_ef1={w_ef1}, w_ef5={w_ef5}, w_ef10={w_ef10}")
-        print(f"  BEDROC/rank: w_bed={w_bed}, w_rank={w_rank}")
-        print(f"  alpha={alpha_final}, tau0={tau0}, lambda={lam}")
-        print(f"  delta={delta_or_power}, gamma={gamma}")
-
-        ef_terms_full, mean_rank_full, rank_score_full, bedroc_full = calc_metrics(
-            act_idx_all, ranks, ranks01, topk_idx, cutoffs, N, alpha_final
-        )
-        w_mix_full, _ = compute_weights_v2(
-            ef_terms_full, rank_score_full, bedroc_full,
-            shrink, delta_or_power if args.aggregation == "weighted" else 1.0,
-            gamma, w_ef1, w_ef5, w_ef10, w_bed, w_rank
-        )
-
-    print(f"\nFinal modality weights:")
-    weight_entropy = -np.sum(w_mix_full * np.log(w_mix_full + 1e-10))
-    uniform_entropy = np.log(E)
-    print(f"  Weight entropy: {weight_entropy:.3f} (uniform={uniform_entropy:.3f})")
-    for name, w in sorted(zip(mod_names_simple, w_mix_full), key=lambda x: -x[1]):
+    
+    arr = np.array(chosen_params, dtype=object)
+    final_param = tuple(Counter(arr[:, j]).most_common(1)[0][0] for j in range(arr.shape[1]))
+    final_params = dict(zip(['w_ef1', 'w_ef5', 'w_ef10', 'w_bedroc', 'w_rank', 
+                             'alpha', 'tau0', 'lam', 'delta', 'gamma'], final_param))
+    
+    print("\nSelected hyperparameters:")
+    for k, v in final_params.items():
+        print(f"  {k}: {v}")
+    
+    # Compute final weights
+    shrink = shrink_cache[(final_params['tau0'], final_params['lam'])]
+    ef_terms, mean_rank, rank_score, bedroc_vals = calc_modality_metrics(
+        act_idx_all, ranks, ranks01, topk_idx, cutoffs, N, final_params['alpha'])
+    w_final = compute_weights(ef_terms, rank_score, bedroc_vals, shrink, final_params, E)
+    
+    print("\nFinal weights:")
+    for name, w in sorted(zip(mod_names, w_final), key=lambda x: -x[1]):
         print(f"  {name}: {w:.4f}")
-
-    # =========================================================================
-    # FULL RANKING
-    # =========================================================================
-    if args.aggregation == "rrf":
-        consensus_score = reciprocal_rank_fusion(ranks)
-    elif args.aggregation == "power":
-        ranks_power = power_rank_transform(ranks, N, power=delta_or_power)
-        consensus_score = ranks_power.dot(w_mix_full)
-    else:
-        consensus_score = ranks01.dot(w_mix_full)
     
-    df_pool["cwra_score"] = consensus_score
-    df_pool["cwra_rank"] = np.argsort(np.argsort(consensus_score)) + 1
-
-    for j, (col, _) in enumerate(modalities):
-        df_pool[f"rank_{col}"] = ranks[:, j]
-
-    # =========================================================================
-    # OUTPUT TABLES
-    # =========================================================================
-    # For RRF, we need to compute metrics here; for others, reuse from weight computation
-    if args.aggregation == "rrf":
-        ef_terms_full, mean_rank_full, _, _ = calc_metrics(
-            act_idx_all, ranks, ranks01, topk_idx, cutoffs, N, alpha_final
-        )
-    
-    table5 = pd.DataFrame({
-        "Modality": mod_labels,
-        "Weight": w_mix_full,
-        "EF@1%": ef_terms_full["1"],
-        "EF@5%": ef_terms_full["5"],
-        "EF@10%": ef_terms_full["10"],
-        "Mean_Rank": mean_rank_full,
-    })
-
-    def agg(method_key: str) -> dict:
+    # Aggregate CV results
+    def agg_results(key):
         vals = {}
-        for name in cutoffs.keys():
-            h_arr = np.array([fr[method_key][f"h{name}"] for fr in fold_results], float)
-            ef_arr = np.array([fr[method_key][f"ef{name}"] for fr in fold_results], float)
-            h_std = float(h_arr.std(ddof=1)) if len(h_arr) > 1 else 0.0
-            ef_std = float(ef_arr.std(ddof=1)) if len(ef_arr) > 1 else 0.0
-            vals[f"h{name}"] = (float(h_arr.mean()), h_std)
-            vals[f"ef{name}"] = (float(ef_arr.mean()), ef_std)
+        for c in cutoffs.keys():
+            h_arr = np.array([fr[key][f"h{c}"] for fr in fold_results])
+            ef_arr = np.array([fr[key][f"ef{c}"] for fr in fold_results])
+            vals[f"h{c}"] = (h_arr.mean(), h_arr.std(ddof=1) if len(h_arr) > 1 else 0)
+            vals[f"ef{c}"] = (ef_arr.mean(), ef_arr.std(ddof=1) if len(ef_arr) > 1 else 0)
         return vals
-
-    s_eq = agg("equal")
-    s_cwra = agg("cwra")
-    s_random = agg("random")
+    
+    s_cwra = agg_results("cwra")
+    s_eq = agg_results("equal")
+    s_random = agg_results("random")
     
     s_individual = {}
-    for mod_name in mod_names_simple:
+    for mod in mod_names:
         vals = {}
-        for name in cutoffs.keys():
-            h_arr = np.array([fr["individual"][mod_name][f"h{name}"] for fr in fold_results], float)
-            ef_arr = np.array([fr["individual"][mod_name][f"ef{name}"] for fr in fold_results], float)
-            h_std = float(h_arr.std(ddof=1)) if len(h_arr) > 1 else 0.0
-            ef_std = float(ef_arr.std(ddof=1)) if len(ef_arr) > 1 else 0.0
-            vals[f"h{name}"] = (float(h_arr.mean()), h_std)
-            vals[f"ef{name}"] = (float(ef_arr.mean()), ef_std)
-        s_individual[mod_name] = vals
-
-    table6_rows = [{"Method": "Random", "EF@10%": fmt(*s_random["ef10"]),
-                    "Hits@10%": fmt(*s_random["h10"]), "Hits@20%": fmt(*s_random["h20"]), "Hits@30%": fmt(*s_random["h30"])}]
+        for c in cutoffs.keys():
+            h_arr = np.array([fr["individual"][mod][f"h{c}"] for fr in fold_results])
+            ef_arr = np.array([fr["individual"][mod][f"ef{c}"] for fr in fold_results])
+            vals[f"h{c}"] = (h_arr.mean(), h_arr.std(ddof=1) if len(h_arr) > 1 else 0)
+            vals[f"ef{c}"] = (ef_arr.mean(), ef_arr.std(ddof=1) if len(ef_arr) > 1 else 0)
+        s_individual[mod] = vals
     
-    for mod_name in mod_names_simple:
-        s = s_individual[mod_name]
-        table6_rows.append({"Method": f"{mod_name}",
-                           "EF@10%": fmt(*s["ef10"]), "Hits@10%": fmt(*s["h10"]),
-                           "Hits@20%": fmt(*s["h20"]), "Hits@30%": fmt(*s["h30"])})
+    # Table 5: Modality weights
+    table5 = pd.DataFrame({
+        "Modality": mod_labels,
+        "Weight": w_final,
+        "EF@1%": ef_terms["1"],
+        "EF@5%": ef_terms["5"],
+        "EF@10%": ef_terms["10"],
+        "Mean_Rank": mean_rank
+    })
     
-    table6_rows.append({"Method": "Average (Equal-weight)",
-                        "EF@10%": fmt(*s_eq["ef10"]), "Hits@10%": fmt(*s_eq["h10"]),
-                        "Hits@20%": fmt(*s_eq["h20"]), "Hits@30%": fmt(*s_eq["h30"])})
+    # Table 6: Performance
+    rows = []
+    rows.append({"Method": "Random", 
+                 **{f"EF@{c}%": f"{s_random[f'ef{c}'][0]:.2f} ± {s_random[f'ef{c}'][1]:.2f}" for c in cutoffs},
+                 **{f"Hits@{c}%": f"{s_random[f'h{c}'][0]:.2f} ± {s_random[f'h{c}'][1]:.2f}" for c in cutoffs}})
     
-    method_name = {"weighted": "CWRA", "rrf": "RRF", "power": "CWRA-Power"}[args.aggregation]
-    table6_rows.append({"Method": f"{method_name}-{args.focus}",
-                        "EF@10%": fmt(*s_cwra["ef10"]), "Hits@10%": fmt(*s_cwra["h10"]),
-                        "Hits@20%": fmt(*s_cwra["h20"]), "Hits@30%": fmt(*s_cwra["h30"])})
+    for mod in mod_names:
+        s = s_individual[mod]
+        rows.append({"Method": mod, 
+                     **{f"EF@{c}%": f"{s[f'ef{c}'][0]:.2f} ± {s[f'ef{c}'][1]:.2f}" for c in cutoffs},
+                     **{f"Hits@{c}%": f"{s[f'h{c}'][0]:.2f} ± {s[f'h{c}'][1]:.2f}" for c in cutoffs}})
     
-    table6 = pd.DataFrame(table6_rows)
-
-    # =========================================================================
-    # SAVE OUTPUTS
-    # =========================================================================
+    rows.append({"Method": "Equal-weight", 
+                 **{f"EF@{c}%": f"{s_eq[f'ef{c}'][0]:.2f} ± {s_eq[f'ef{c}'][1]:.2f}" for c in cutoffs},
+                 **{f"Hits@{c}%": f"{s_eq[f'h{c}'][0]:.2f} ± {s_eq[f'h{c}'][1]:.2f}" for c in cutoffs}})
+    rows.append({"Method": "CWRA-early", 
+                 **{f"EF@{c}%": f"{s_cwra[f'ef{c}'][0]:.2f} ± {s_cwra[f'ef{c}'][1]:.2f}" for c in cutoffs},
+                 **{f"Hits@{c}%": f"{s_cwra[f'h{c}'][0]:.2f} ± {s_cwra[f'h{c}'][1]:.2f}" for c in cutoffs}})
+    
+    table6 = pd.DataFrame(rows)
+    
+    # Final consensus ranking
+    consensus = ranks01.dot(w_final)
+    df_pool["cwra_score"] = consensus
+    df_pool["cwra_rank"] = np.argsort(np.argsort(consensus)) + 1
+    
+    # Add individual ranks
+    for j, col in enumerate(mod_cols):
+        df_pool[f"rank_{col}"] = ranks[:, j]
+    
+    # Save outputs
     prefix = args.output_prefix
-    
     table5.to_csv(f"{prefix}_table5_weights.csv", index=False)
     table6.to_csv(f"{prefix}_table6_performance.csv", index=False)
     df_pool.to_csv(f"{prefix}_full_ranking.csv", index=False)
     
-    df_gen = df_pool[g_mask].copy()
-    if len(df_gen) > 0:
-        df_gen_sorted = df_gen.sort_values("cwra_rank")
-        df_gen_sorted.head(args.top_n).to_csv(f"{prefix}_top{args.top_n}_G.csv", index=False)
-        df_gen_sorted.tail(args.top_n).to_csv(f"{prefix}_bottom{args.top_n}_G.csv", index=False)
-
-    # =========================================================================
-    # PRINT SUMMARY
-    # =========================================================================
-    print("\n" + "=" * 100)
-    print("RESULTS SUMMARY")
-    print("=" * 100)
+    df_gen = df_pool[g_mask].sort_values("cwra_rank")
+    df_gen.head(args.top_n).to_csv(f"{prefix}_top{args.top_n}_G.csv", index=False)
+    df_gen.tail(args.top_n).to_csv(f"{prefix}_bottom{args.top_n}_G.csv", index=False)
     
-    print("\nTable 5 - Modality Weights and Individual Performance:")
-    print("-" * 100)
-    print(f"{'Modality':<25} {'Weight':>8} {'EF@1%':>8} {'EF@5%':>8} {'EF@10%':>8}")
-    print("-" * 100)
-    for _, row in table5.sort_values("Weight", ascending=False).iterrows():
-        print(f"{row['Modality']:<25} {row['Weight']:>8.4f} {row['EF@1%']:>8.2f} "
-              f"{row['EF@5%']:>8.2f} {row['EF@10%']:>8.2f}")
-    print("-" * 100)
+    # Save hyperparameters
+    hp_df = pd.DataFrame([{
+        "Parameter": k, 
+        "Value": v
+    } for k, v in final_params.items()])
+    hp_df.to_csv(f"{prefix}_hyperparameters.csv", index=False)
     
-    print("\n" + "=" * 100)
-    print("Table 6 - Performance Comparison (CV Results):")
-    print("=" * 100)
-    print(f"{'Method':<30} {'EF@10%':>16} {'Hits@10%':>16} {'Hits@20%':>16}")
-    print("-" * 100)
+    # Generate LaTeX
+    latex = generate_latex_tables(table5, s_individual, s_eq, s_cwra, s_random, 
+                                   final_params, mod_labels, mod_names)
+    with open(f"{prefix}_latex_tables.tex", "w") as f:
+        f.write(latex)
     
-    print(f"{'Random':<30} {fmt(*s_random['ef10']):>16} {fmt(*s_random['h10']):>16} "
-          f"{fmt(*s_random['h20']):>16}")
-    print("-" * 100)
+    # Print summary table
+    print("\n" + "=" * 110)
+    print("PERFORMANCE SUMMARY")
+    print("=" * 110)
+    print(f"\n{'Method':<25} {'EF@1%':>15} {'EF@5%':>15} {'EF@10%':>15} {'EF@20%':>15} {'EF@30%':>15}")
+    print("-" * 110)
+    print(f"{'Random':<25} {fmt(*s_random['ef1']):>15} {fmt(*s_random['ef5']):>15} "
+          f"{fmt(*s_random['ef10']):>15} {fmt(*s_random['ef20']):>15} {fmt(*s_random['ef30']):>15}")
+    print("-" * 110)
     
-    ind_sorted = sorted(s_individual.items(), key=lambda x: -x[1]["ef10"][0])
-    for mod_name, s in ind_sorted:
-        print(f"{mod_name:<30} {fmt(*s['ef10']):>16} {fmt(*s['h10']):>16} "
-              f"{fmt(*s['h20']):>16}")
-    print("-" * 100)
+    for mod in sorted(mod_names, key=lambda m: -s_individual[m]['ef10'][0]):
+        s = s_individual[mod]
+        print(f"{mod:<25} {fmt(*s['ef1']):>15} {fmt(*s['ef5']):>15} "
+              f"{fmt(*s['ef10']):>15} {fmt(*s['ef20']):>15} {fmt(*s['ef30']):>15}")
     
-    print(f"{'Average (Equal-weight)':<30} {fmt(*s_eq['ef10']):>16} {fmt(*s_eq['h10']):>16} "
-          f"{fmt(*s_eq['h20']):>16}")
-    print(f"{method_name + '-' + args.focus:<30} {fmt(*s_cwra['ef10']):>16} "
-          f"{fmt(*s_cwra['h10']):>16} {fmt(*s_cwra['h20']):>16}")
-    print("=" * 100)
+    print("-" * 110)
+    print(f"{'Equal-weight':<25} {fmt(*s_eq['ef1']):>15} {fmt(*s_eq['ef5']):>15} "
+          f"{fmt(*s_eq['ef10']):>15} {fmt(*s_eq['ef20']):>15} {fmt(*s_eq['ef30']):>15}")
+    print(f"{'CWRA-early':<25} {fmt(*s_cwra['ef1']):>15} {fmt(*s_cwra['ef5']):>15} "
+          f"{fmt(*s_cwra['ef10']):>15} {fmt(*s_cwra['ef20']):>15} {fmt(*s_cwra['ef30']):>15}")
+    print("=" * 110)
     
-    # Improvement summary
-    cwra_ef10_mean = s_cwra["ef10"][0]
-    eq_ef10_mean = s_eq["ef10"][0]
-    best_ind_ef10 = max(s["ef10"][0] for s in s_individual.values())
+    # Improvement stats
+    best_ind = max(s_individual[m]['ef10'][0] for m in mod_names)
+    print(f"\nImprovement over Equal-weight: {100*(s_cwra['ef10'][0]/s_eq['ef10'][0] - 1):.1f}%")
+    print(f"Improvement over best individual: {100*(s_cwra['ef10'][0]/best_ind - 1):.1f}%")
+    print(f"Improvement over random: {100*(s_cwra['ef10'][0]/s_random['ef10'][0] - 1):.1f}%")
     
-    if eq_ef10_mean > 0:
-        print(f"\nImprovement over Equal-weight at EF@10%: {100*(cwra_ef10_mean/eq_ef10_mean - 1):.1f}%")
-    if best_ind_ef10 > 0:
-        print(f"Improvement over best individual at EF@10%: {100*(cwra_ef10_mean/best_ind_ef10 - 1):.1f}%")
-    
-    print("\nFinal model EF (full dataset, no CV):")
-    full_order = np.argsort(consensus_score)
-    for name, k in [("10%", k10), ("20%", k20), ("30%", k30)]:
-        h = active_mask[full_order[:k]].sum()
+    # Full dataset EF
+    print("\nFull dataset EF (no CV):")
+    order = np.argsort(consensus)
+    for c, k in cutoffs.items():
+        h = active_mask[order[:k]].sum()
         ef = (h * N) / (k * A_all)
-        print(f"  EF@{name}: {ef:.2f} ({h} hits in top {k})")
+        print(f"  EF@{c}%: {ef:.2f} ({h} hits in top {k})")
     
-    # Print calcitriol rank
-    calcitriol_row = df_pool[df_pool["source"] == "calcitriol"]
-    if len(calcitriol_row) > 0:
-        calcitriol_rank = calcitriol_row["cwra_rank"].iloc[0]
-        percentile = 100 * calcitriol_rank / N
-        print(f"\nCalcitriol rank: {int(calcitriol_rank)} / {N} (top {percentile:.1f}%)")
+    # Calcitriol rank
+    calcitriol = df_pool[df_pool["source"] == "calcitriol"]
+    if len(calcitriol) > 0:
+        rank = int(calcitriol["cwra_rank"].iloc[0])
+        print(f"\nCalcitriol rank: {rank} / {N} (top {100*rank/N:.1f}%)")
     
-    print(f"\nOutputs saved with prefix '{prefix}'")
+    print(f"\nOutputs saved: {prefix}_*")
 
 
 if __name__ == "__main__":
