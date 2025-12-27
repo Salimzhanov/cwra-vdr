@@ -41,11 +41,14 @@ pip install -e ".[dev]"
 ### Command Line
 
 ```bash
-# Quick test
-cwra --csv data/labeled_raw_modalities.csv --outer_repeats 1 --outer_splits 3 --focus early
+# Quick test (narrow grid, few folds)
+python -m cwra --csv data/labeled_raw_modalities.csv --grid_mode narrow --outer_splits 3 --outer_repeats 1
 
-# Full run
-cwra --csv data/labeled_raw_modalities.csv --outer_repeats 5 --outer_splits 10 --focus early --output_prefix results
+# Standard run (optimal grid, 5×5 CV)
+python -m cwra --csv data/labeled_raw_modalities.csv --grid_mode optimal --outer_splits 5 --outer_repeats 5 --output_prefix results/results
+
+# Apply predefined weights (skip CV)
+python -m cwra --csv data/labeled_raw_modalities.csv --apply_weights --output_prefix results_direct
 ```
 
 ### Python API
@@ -109,31 +112,43 @@ cwra-vdr/
 
 ## Performance
 
-Hit recovery on full ranking of 1,602 compounds (365 initial_370 actives). EF@k% measures enrichment factor at top k% of the ranked database. Hits@k reports the number of actives found in the top k compounds.
+Cross-validated performance using scaffold-grouped nested CV (5 folds × 3 repeats). EF@k% measures enrichment factor at top k% of the ranked database. Values are mean ± standard deviation.
 
-### Method Comparison
+### Method Comparison (CV Results)
 
-| Category | Method | EF@10% | Hits@10% | Hits@20% | Hits@30% |
-|----------|--------|--------|----------|----------|----------|
-| Single | GraphDTA-Kd  | 1.40 | 51 | 100 | 138 |
-| Single | GraphDTA-Ki  | 1.54 | 56 | 96 | 138 |
-| Single | GraphDTA-IC50  | 1.48 | 54 | 100 | 136 |
-| Single | MLT-LE pKd  | 1.26 | 46 | 79 | 126 |
-| Single | AutoDock Vina  | 1.23 | 45 | 96 | 146 |
-| Single | Boltz-2 affinity  | 1.45 | 53 | 98 | 135 |
-| Single | Boltz-2 confidence  | 1.48 | 54 | 93 | 149 |
-| Single | Uni-Mol similarity  | 1.56 | 57 | 104 | 145 |
-| Single | TankBind affinity  | 0.88 | 32 | 68 | 118 |
-| Single | DrugBAN  | 1.29 | 47 | 90 | 125 |
-| Single | MolTrans  | 1.07 | 39 | 69 | 107 |
-| Fusion | Equal-weight | 1.81 | 66 | 115 | 159 |
-| Fusion | **CWRA** | **2.06** | **75** | **122** | **167** |
-| Baseline | *Expected at random* | 1.00 | 36.5 | 72.9 | 109.4 |
+| Category | Method | EF@1% | EF@5% | EF@10% | EF@20% | EF@30% |
+|----------|--------|-------|-------|--------|--------|--------|
+| Fusion | **CWRA** | **3.78 ± 2.60** | **3.18 ± 1.65** | 2.47 ± 1.00 | 2.02 ± 0.55 | 1.75 ± 0.40 |
+| Fusion | Equal-weight | 3.68 ± 1.91 | 2.89 ± 1.12 | **2.61 ± 0.64** | **2.08 ± 0.43** | **1.76 ± 0.30** |
+| Single | UniMol similarity | 3.18 ± 2.94 | 2.53 ± 2.09 | 2.10 ± 1.50 | 1.93 ± 0.83 | 1.61 ± 0.49 |
+| Single | MLTLE pKd | 3.21 ± 2.90 | 1.84 ± 0.74 | 1.55 ± 0.55 | 1.43 ± 0.41 | 1.46 ± 0.36 |
+| Single | GraphDTA-Kd | 2.64 ± 1.55 | 2.30 ± 0.63 | 1.90 ± 0.58 | 1.75 ± 0.44 | 1.60 ± 0.39 |
+| Single | GraphDTA-Ki | 2.46 ± 2.25 | 2.26 ± 0.67 | 2.02 ± 0.65 | 1.74 ± 0.41 | 1.64 ± 0.34 |
+| Single | GraphDTA-IC50 | 2.40 ± 1.46 | 2.34 ± 0.83 | 1.98 ± 0.51 | 1.71 ± 0.40 | 1.63 ± 0.31 |
+| Single | MolTrans | 2.04 ± 1.16 | 1.52 ± 0.58 | 1.46 ± 0.38 | 1.14 ± 0.24 | 1.20 ± 0.17 |
+| Single | AutoDock Vina | 0.94 ± 1.24 | 1.87 ± 0.87 | 1.87 ± 0.79 | 1.80 ± 0.55 | 1.67 ± 0.38 |
+| Single | Boltz-2 confidence | 1.14 ± 0.92 | 2.01 ± 0.63 | 1.71 ± 0.45 | 1.81 ± 0.22 | 1.66 ± 0.19 |
+| Single | Boltz-2 affinity | 0.97 ± 0.89 | 1.57 ± 0.71 | 1.68 ± 0.63 | 1.64 ± 0.59 | 1.46 ± 0.45 |
+| Single | DrugBAN | 1.27 ± 1.87 | 1.80 ± 0.94 | 1.51 ± 0.68 | 1.51 ± 0.47 | 1.44 ± 0.34 |
+| Single | TankBind | 0.58 ± 0.73 | 0.82 ± 0.70 | 0.98 ± 0.65 | 1.16 ± 0.55 | 1.23 ± 0.52 |
+| Baseline | Random | 1.12 ± 1.06 | 1.26 ± 0.47 | 1.30 ± 0.40 | 1.26 ± 0.23 | 1.25 ± 0.17 |
+
+### Full Dataset Performance (No CV)
+
+| Metric | CWRA | Equal-weight | Best Single (UniMol) |
+|--------|------|--------------|---------------------|
+| EF@1% | 3.56 | 1.64 | 1.91 |
+| EF@5% | 2.63 | 2.30 | 1.97 |
+| EF@10% | 2.05 | 1.81 | 1.56 |
+| Hits@10% | 75 | 66 | 57 |
+| Hits@20% | 123 | 115 | 105 |
+| Hits@30% | 168 | 159 | 146 |
 
 **Key Results:**
-- CWRA achieves **EF@10% = 2.06**, outperforming all single modalities and equal-weight fusion
-- CWRA recovers **75 actives** (21%) in top 10%, **122 actives** (33%) in top 20%, **167 actives** (46%) in top 30%
-- Best single modality (Uni-Mol similarity) achieves only 57 hits at 10% vs CWRA's 75 hits (+32%)
+- CWRA achieves **EF@1% = 3.78 ± 2.60** in CV, outperforming all single modalities
+- CWRA beats the best single modality (UniMol) by **19%** at EF@1%
+- CWRA shows **90%** improvement over random baseline at EF@10%
+- On full dataset, CWRA recovers **75 actives** (20.5%) in top 10%, **168 actives** (45.9%) in top 30%
 
 ## Usage
 
@@ -147,11 +162,12 @@ Hit recovery on full ranking of 1,602 compounds (365 initial_370 actives). EF@k%
 | `--inner_splits` | `3` | Number of inner CV folds |
 | `--seed` | `42` | Random seed |
 | `--risk_beta` | `0.3` | Risk aversion parameter (mean - beta*std) |
-| `--focus` | `early` | Optimization focus: 'early', 'balanced', 'standard' |
-| `--grid_mode` | `wide` | Grid size: 'narrow', 'default', 'wide', 'extended' |
+| `--focus` | `early` | Optimization focus: 'early', 'balanced', 'standard', 'comprehensive' |
+| `--grid_mode` | `optimal` | Grid size: 'narrow', 'optimal', 'default', 'wide', 'extended', 'production' |
 | `--output_prefix` | `results` | Prefix for output files |
 | `--top_n` | `25` | Number of top/bottom structures to extract |
 | `--n_jobs` | `-1` | Parallel jobs (-1 for all cores) |
+| `--apply_weights` | `False` | Apply predefined optimal weights (skip CV) |
 
 ### Input Format
 

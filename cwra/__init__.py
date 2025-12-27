@@ -11,10 +11,32 @@ Authors:
 - Siamac Fazli (Corresponding Author)
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Abylay Salimzhanov, Ferdinand Molnár, Siamac Fazli"
 __email__ = ""
 
-from .cwra import main
+from .cwra import (
+    main,
+    murcko_smiles,
+    bedroc,
+    shrink_factors,
+    eval_at_cutoffs,
+    compute_weights,
+    calc_modality_metrics,
+    balanced_group_kfold,
+    MODALITIES,
+    CUTOFF_PCTS,
+)
 
-__all__ = ["main"]
+__all__ = [
+    "main",
+    "murcko_smiles",
+    "bedroc",
+    "shrink_factors",
+    "eval_at_cutoffs",
+    "compute_weights",
+    "calc_modality_metrics",
+    "balanced_group_kfold",
+    "MODALITIES",
+    "CUTOFF_PCTS",
+]

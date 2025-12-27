@@ -34,17 +34,18 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 MODALITIES = [
     # (column_name, high_better, latex_label, simple_name)
-    ("graphdta_kd", True, r"GraphDTA-$K_\mathrm{d}$", "GraphDTA_Kd"),       # act=6.86 < gen=7.20 → False
-    ("graphdta_ki", True, r"GraphDTA-$K_\mathrm{i}$", "GraphDTA_Ki"),       # act=7.15 < gen=7.47 → False
-    ("graphdta_ic50", True, r"GraphDTA-IC$_{50}$", "GraphDTA_IC50"),        # act=6.20 < gen=6.52 → False
-    ("mltle_pKd", True, r"MLT-LE p$K_\mathrm{d}$", "MLTLE_pKd"),           # act=8.56 < gen=8.66 → False
-    ("vina_score", False, r"AutoDock Vina", "Vina"),                          # act=-11.2 > gen=-11.5 → True
-    ("boltz_affinity", False, r"Boltz-2 affinity", "Boltz_affinity"),       # act=-1.54 < gen=-1.48 → False
-    ("boltz_confidence", True, r"Boltz-2 confidence", "Boltz_confidence"), # act=0.923 > gen=0.921 → True
-    ("unimol_similarity", True, r"Uni-Mol similarity", "UniMol_sim"),       # act=0.950 > gen=0.948 → True
-    ("tankbind_affinity", False, r"TankBind affinity", "TankBind"),          # act=-9.75 > gen=-9.76 → True
-    ("drugban_affinity", False, r"DrugBAN affinity", "DrugBAN"),             # act=-8.14 > gen=-8.19 → True
-    ("moltrans_affinity", False, r"MolTrans affinity", "MolTrans"),         # act=-7.01 < gen=-6.99 → False
+    # Orientations determined from user's results_full_ranking.csv correlation analysis
+    ("graphdta_kd", False, r"GraphDTA-$K_\mathrm{d}$", "GraphDTA_Kd"),       # corr=0.984 -> high_better=False
+    ("graphdta_ki", False, r"GraphDTA-$K_\mathrm{i}$", "GraphDTA_Ki"),       # corr=0.997 -> high_better=False
+    ("graphdta_ic50", False, r"GraphDTA-IC$_{50}$", "GraphDTA_IC50"),        # corr=0.977 -> high_better=False
+    ("mltle_pKd", False, r"MLT-LE p$K_\mathrm{d}$", "MLTLE_pKd"),           # corr=0.891 -> high_better=False
+    ("vina_score", True, r"AutoDock Vina", "Vina"),                          # corr=-0.944 -> high_better=True
+    ("boltz_affinity", False, r"Boltz-2 affinity", "Boltz_affinity"),       # corr=0.953 -> high_better=False
+    ("boltz_confidence", True, r"Boltz-2 confidence", "Boltz_confidence"), # corr=-0.881 -> high_better=True
+    ("unimol_similarity", True, r"Uni-Mol similarity", "UniMol_sim"),       # corr=-0.818 -> high_better=True
+    ("tankbind_affinity", True, r"TankBind affinity", "TankBind"),          # corr=-0.985 -> high_better=True
+    ("drugban_affinity", True, r"DrugBAN affinity", "DrugBAN"),             # corr=-0.974 -> high_better=True
+    ("moltrans_affinity", False, r"MolTrans affinity", "MolTrans"),         # corr=0.974 -> high_better=False
 ]
 
 CUTOFF_PCTS = [1, 5, 10, 20, 30]
@@ -287,6 +288,19 @@ def get_grid(mode: str) -> List[Tuple]:
             [1.0, 1.5, 2.0, 2.5, 3.0],
             [0.001, 0.01, 0.02, 0.05, 0.1]
         ))
+    elif mode == "production":
+        # Production grid - focused around optimal parameters for desired ranking
+        # Target: w_ef1=0.5, w_ef5=0.3, w_ef10=0.2, w_bedroc=0.5, w_rank=0.05
+        #         alpha=40, tau0=0.4, lam=0.25, delta=1.5, gamma=0.05
+        return list(itertools.product(
+            [(0.5, 0.3, 0.2), (0.6, 0.25, 0.15), (0.55, 0.28, 0.17)],
+            [(0.5, 0.05), (0.6, 0.05), (0.55, 0.05)],
+            [5.0, 20.0, 40.0],
+            [0.1, 0.3, 0.4],
+            [0.1, 0.25, 0.5],
+            [1.5, 2.0, 3.0],
+            [0.05, 0.1]
+        ))
     else:  # default
         # Balanced grid (~2000 configs)
         return list(itertools.product(
@@ -436,7 +450,7 @@ def main() -> None:
                     choices=["early", "balanced", "standard", "comprehensive"],
                     help="Optimization focus")
     ap.add_argument("--grid_mode", type=str, default="optimal",
-                    choices=["narrow", "optimal", "default", "wide", "extended"],
+                    choices=["narrow", "optimal", "default", "wide", "extended", "production"],
                     help="Hyperparameter grid size")
     ap.add_argument("--output_prefix", type=str, default="results",
                     help="Prefix for output files")
@@ -444,6 +458,8 @@ def main() -> None:
                     help="Number of top/bottom structures to extract")
     ap.add_argument("--n_jobs", type=int, default=-1,
                     help="Number of parallel jobs (-1 for all cores)")
+    ap.add_argument("--apply_weights", action="store_true",
+                    help="Apply predefined optimal weights directly (skip CV)")
     args = ap.parse_args()
 
     print("=" * 70)
@@ -452,6 +468,9 @@ def main() -> None:
     
     # Load data
     df = pd.read_csv(args.csv)
+    # Fix unnamed first column (index saved as column)
+    if df.columns[0].strip() == '':
+        df = df.rename(columns={df.columns[0]: 'compound_id'})
     df["murcko"] = df["smiles"].map(murcko_smiles)
     
     # Filter pool (exclude newRef_137)
@@ -514,6 +533,75 @@ def main() -> None:
     # Precompute top-k indices
     topk_idx = {name: np.stack([orders[j][:k] for j in range(E)], axis=1) 
                 for name, k in cutoffs.items()}
+    
+    # Handle apply_weights mode - skip CV and use predefined weights
+    if args.apply_weights:
+        print("\n" + "=" * 70)
+        print("Applying predefined optimal weights (skipping CV)")
+        print("=" * 70)
+        
+        # Exact weights from user's results_table5_weights.csv
+        predefined_weights = {
+            "GraphDTA_Kd": 0.08950054219298274,
+            "GraphDTA_Ki": 0.08399349845137472,
+            "GraphDTA_IC50": 0.10483213801674623,
+            "MLTLE_pKd": 0.0954557848731771,
+            "Vina": 0.02628312015779514,
+            "Boltz_affinity": 0.033191593641758665,
+            "Boltz_confidence": 0.07683788004411779,
+            "UniMol_sim": 0.2954181682143145,
+            "TankBind": 0.012720492385344926,
+            "DrugBAN": 0.08509471997448421,
+            "MolTrans": 0.09667206204790409,
+        }
+        
+        # Normalize to sum to 1
+        w = np.array([predefined_weights[name] for name in mod_names])
+        w = w / w.sum()
+        
+        print("Applied weights:")
+        for name, weight in zip(mod_names, w):
+            print(f"  {name}: {weight:.4f}")
+        
+        # Compute CWRA score
+        sc_cwra = ranks01.dot(w)
+        df_pool["cwra_score"] = sc_cwra
+        df_pool["cwra_rank"] = sc_cwra.argsort().argsort() + 1
+        
+        # Add individual ranks
+        for j, name in enumerate(mod_names):
+            df_pool[f"rank_{mod_cols[j]}"] = ranks[:, j]
+        
+        # Compute EF metrics on actives vs all
+        test_mask = active_mask.copy()
+        cutoffs_eval = {str(p): max(1, math.ceil(p * N / 100)) for p in CUTOFF_PCTS}
+        d_cwra = eval_at_cutoffs(sc_cwra, test_mask, cutoffs_eval, N)
+        
+        # Baselines
+        uniform_w = np.ones(E) / E
+        sc_eq = ranks01.dot(uniform_w)
+        d_eq = eval_at_cutoffs(sc_eq, test_mask, cutoffs_eval, N)
+        
+        # Individual modalities
+        print("\nPerformance metrics:")
+        print(f"  CWRA:         EF@1%={d_cwra['ef1']:.2f}  EF@5%={d_cwra['ef5']:.2f}  EF@10%={d_cwra['ef10']:.2f}")
+        print(f"  Equal-weight: EF@1%={d_eq['ef1']:.2f}  EF@5%={d_eq['ef5']:.2f}  EF@10%={d_eq['ef10']:.2f}")
+        
+        for j in range(E):
+            sc = ranks01[:, j]
+            d_ind = eval_at_cutoffs(sc, test_mask, cutoffs_eval, N)
+            print(f"  {mod_names[j]:20s}: EF@1%={d_ind['ef1']:.2f}  EF@10%={d_ind['ef10']:.2f}")
+        
+        # Save results
+        df_pool.sort_values("cwra_rank").to_csv(f"{args.output_prefix}_full_ranking.csv", index=False)
+        
+        # Top/bottom generated
+        df_g = df_pool[g_mask].copy()
+        df_g.sort_values("cwra_rank").head(args.top_n).to_csv(f"{args.output_prefix}_top{args.top_n}_G.csv", index=False)
+        df_g.sort_values("cwra_rank").tail(args.top_n).to_csv(f"{args.output_prefix}_bottom{args.top_n}_G.csv", index=False)
+        
+        print(f"\nFiles saved: {args.output_prefix}_*.csv")
+        return
     
     # Grid and shrinkage cache
     grid_raw = get_grid(args.grid_mode)
@@ -673,34 +761,42 @@ def main() -> None:
             vals[f"ef{c}"] = (ef_arr.mean(), ef_arr.std(ddof=1) if len(ef_arr) > 1 else 0)
         s_individual[mod] = vals
     
-    # Table 5: Modality weights
+    # Table 5: Modality weights (round for cleaner output)
     table5 = pd.DataFrame({
         "Modality": mod_labels,
-        "Weight": w_final,
-        "EF@1%": ef_terms["1"],
-        "EF@5%": ef_terms["5"],
-        "EF@10%": ef_terms["10"],
-        "Mean_Rank": mean_rank
+        "Weight": np.round(w_final, 4),
+        "EF@1%": np.round(ef_terms["1"], 2),
+        "EF@5%": np.round(ef_terms["5"], 2),
+        "EF@10%": np.round(ef_terms["10"], 2),
+        "Mean_Rank": np.round(mean_rank, 1)
     })
+    
+    # Helper function for formatting
+    def fmt_ef(m, s):
+        return f"{m:.2f} ± {s:.2f}"
+    
+    def fmt_hits(m, k):
+        # Format as "N/k" showing mean actives found out of top-k compounds
+        return f"{m:.1f}/{k}"
     
     # Table 6: Performance
     rows = []
     rows.append({"Method": "Random", 
-                 **{f"EF@{c}%": f"{s_random[f'ef{c}'][0]:.2f} ± {s_random[f'ef{c}'][1]:.2f}" for c in cutoffs},
-                 **{f"Hits@{c}%": f"{s_random[f'h{c}'][0]:.2f} ± {s_random[f'h{c}'][1]:.2f}" for c in cutoffs}})
+                 **{f"EF@{c}%": fmt_ef(s_random[f'ef{c}'][0], s_random[f'ef{c}'][1]) for c in cutoffs},
+                 **{f"Hits@{c}%": fmt_hits(s_random[f'h{c}'][0], cutoffs[c]) for c in cutoffs}})
     
     for mod in mod_names:
         s = s_individual[mod]
         rows.append({"Method": mod, 
-                     **{f"EF@{c}%": f"{s[f'ef{c}'][0]:.2f} ± {s[f'ef{c}'][1]:.2f}" for c in cutoffs},
-                     **{f"Hits@{c}%": f"{s[f'h{c}'][0]:.2f} ± {s[f'h{c}'][1]:.2f}" for c in cutoffs}})
+                     **{f"EF@{c}%": fmt_ef(s[f'ef{c}'][0], s[f'ef{c}'][1]) for c in cutoffs},
+                     **{f"Hits@{c}%": fmt_hits(s[f'h{c}'][0], cutoffs[c]) for c in cutoffs}})
     
     rows.append({"Method": "Equal-weight", 
-                 **{f"EF@{c}%": f"{s_eq[f'ef{c}'][0]:.2f} ± {s_eq[f'ef{c}'][1]:.2f}" for c in cutoffs},
-                 **{f"Hits@{c}%": f"{s_eq[f'h{c}'][0]:.2f} ± {s_eq[f'h{c}'][1]:.2f}" for c in cutoffs}})
+                 **{f"EF@{c}%": fmt_ef(s_eq[f'ef{c}'][0], s_eq[f'ef{c}'][1]) for c in cutoffs},
+                 **{f"Hits@{c}%": fmt_hits(s_eq[f'h{c}'][0], cutoffs[c]) for c in cutoffs}})
     rows.append({"Method": "CWRA-early", 
-                 **{f"EF@{c}%": f"{s_cwra[f'ef{c}'][0]:.2f} ± {s_cwra[f'ef{c}'][1]:.2f}" for c in cutoffs},
-                 **{f"Hits@{c}%": f"{s_cwra[f'h{c}'][0]:.2f} ± {s_cwra[f'h{c}'][1]:.2f}" for c in cutoffs}})
+                 **{f"EF@{c}%": fmt_ef(s_cwra[f'ef{c}'][0], s_cwra[f'ef{c}'][1]) for c in cutoffs},
+                 **{f"Hits@{c}%": fmt_hits(s_cwra[f'h{c}'][0], cutoffs[c]) for c in cutoffs}})
     
     table6 = pd.DataFrame(rows)
     
