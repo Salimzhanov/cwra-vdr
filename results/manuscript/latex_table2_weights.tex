@@ -1,0 +1,23 @@
+\begin{table}[t]
+\caption{Modality weights from BEDROC-enhanced scoring.}
+\label{tab:modality_weights}
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Modality} & \textbf{Weight} & \textbf{EF@1\%} & \textbf{Mean Rank} \\
+\midrule
+GraphDTA-$K_\mathrm{d}$ & <0.01 & 0.51 & 884 \\
+GraphDTA-$K_\mathrm{i}$ & <0.01 & 0.77 & 896 \\
+GraphDTA-IC$_{50}$ & <0.01 & 0.77 & 898 \\
+MLT-LE p$K_\mathrm{d}$ & <0.01 & 1.03 & 853 \\
+AutoDock Vina & <0.01 & 0.00 & 916 \\
+Boltz-2 affinity & <0.01 & 0.77 & 736 \\
+Boltz-2 confidence & <0.01 & 1.03 & 676 \\
+Uni-Mol similarity & 0.82 & 1.80 & 699 \\
+TankBind affinity & <0.01 & 0.51 & 837 \\
+DrugBAN affinity & 0.05 & 0.77 & 852 \\
+MolTrans affinity & 0.13 & 1.29 & 776 \\
+\bottomrule
+\end{tabular}
+\end{table}

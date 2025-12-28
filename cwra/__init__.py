@@ -26,6 +26,7 @@ from .cwra import (
     balanced_group_kfold,
     MODALITIES,
     CUTOFF_PCTS,
+    OPTIMAL_FIXED_WEIGHTS,
 )
 
 __all__ = [
@@ -39,4 +40,5 @@ __all__ = [
     "balanced_group_kfold",
     "MODALITIES",
     "CUTOFF_PCTS",
+    "OPTIMAL_FIXED_WEIGHTS",
 ]

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-CWRA - Calibrated Weighted Rank Aggregation for VDR Virtual Screening
+CWRA - Calibrated Weighted Rank Fusion for VDR Virtual Screening
 
 A method for aggregating multiple virtual screening modalities using 
 calibrated weighting based on cross-validated performance metrics.
 
 Usage:
   python -m cwra --csv data/labeled_raw_modalities.csv --output_prefix results
+  
+  # Use fixed optimal weights (for reproduction)
+  python -m cwra --csv data/labeled_raw_modalities.csv --fixed_weights --output_prefix results
 
-Reference:
-  Salimzhanov et al., "Calibrated Weighted Rank Aggregation for 
-  Multi-Modal Virtual Screening of VDR Ligands"
 """
 
 from __future__ import annotations
@@ -31,21 +31,35 @@ from joblib import Parallel, delayed
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
+# Optimal weights
+OPTIMAL_FIXED_WEIGHTS = {
+    "graphdta_kd": 0.0,
+    "graphdta_ki": 0.0001,
+    "graphdta_ic50": 0.0,
+    "mltle_pKd": 0.0,
+    "vina_score": 0.0006,
+    "boltz_affinity": 0.0,
+    "boltz_confidence": 0.002,
+    "unimol_similarity": 0.8206,
+    "tankbind_affinity": 0.0004,
+    "drugban_affinity": 0.0478,
+    "moltrans_affinity": 0.1285,
+}
+
 
 MODALITIES = [
-    # (column_name, high_better, latex_label, simple_name)
-    # Orientations determined from user's results_full_ranking.csv correlation analysis
-    ("graphdta_kd", False, r"GraphDTA-$K_\mathrm{d}$", "GraphDTA_Kd"),       # corr=0.984 -> high_better=False
-    ("graphdta_ki", False, r"GraphDTA-$K_\mathrm{i}$", "GraphDTA_Ki"),       # corr=0.997 -> high_better=False
-    ("graphdta_ic50", False, r"GraphDTA-IC$_{50}$", "GraphDTA_IC50"),        # corr=0.977 -> high_better=False
-    ("mltle_pKd", False, r"MLT-LE p$K_\mathrm{d}$", "MLTLE_pKd"),           # corr=0.891 -> high_better=False
-    ("vina_score", True, r"AutoDock Vina", "Vina"),                          # corr=-0.944 -> high_better=True
-    ("boltz_affinity", False, r"Boltz-2 affinity", "Boltz_affinity"),       # corr=0.953 -> high_better=False
-    ("boltz_confidence", True, r"Boltz-2 confidence", "Boltz_confidence"), # corr=-0.881 -> high_better=True
-    ("unimol_similarity", True, r"Uni-Mol similarity", "UniMol_sim"),       # corr=-0.818 -> high_better=True
-    ("tankbind_affinity", True, r"TankBind affinity", "TankBind"),          # corr=-0.985 -> high_better=True
-    ("drugban_affinity", True, r"DrugBAN affinity", "DrugBAN"),             # corr=-0.974 -> high_better=True
-    ("moltrans_affinity", False, r"MolTrans affinity", "MolTrans"),         # corr=0.974 -> high_better=False
+    # (column_name, high_better, latex_label, name)
+    ("graphdta_kd", True, r"GraphDTA-$K_\mathrm{d}$", "GraphDTA_Kd"),       # Higher predicted Kd = better
+    ("graphdta_ki", True, r"GraphDTA-$K_\mathrm{i}$", "GraphDTA_Ki"),       # Higher predicted Ki = better
+    ("graphdta_ic50", True, r"GraphDTA-IC$_{50}$", "GraphDTA_IC50"),        # Higher predicted IC50 = better
+    ("mltle_pKd", True, r"MLT-LE p$K_\mathrm{d}$", "MLTLE_pKd"),            # Higher pKd = stronger binding
+    ("vina_score", False, r"AutoDock Vina", "Vina"),                        # More negative = better docking
+    ("boltz_affinity", False, r"Boltz-2 affinity", "Boltz_affinity"),       # More negative = stronger binding
+    ("boltz_confidence", True, r"Boltz-2 confidence", "Boltz_confidence"), # Higher confidence = better
+    ("unimol_similarity", True, r"Uni-Mol similarity", "UniMol_sim"),       # Higher similarity = better
+    ("tankbind_affinity", False, r"TankBind affinity", "TankBind"),         # More negative = stronger binding
+    ("drugban_affinity", False, r"DrugBAN affinity", "DrugBAN"),            # More negative = stronger binding
+    ("moltrans_affinity", False, r"MolTrans affinity", "MolTrans"),         # More negative = stronger binding
 ]
 
 CUTOFF_PCTS = [1, 5, 10, 20, 30]
@@ -70,14 +84,28 @@ def murcko_smiles(smiles: str) -> Optional[str]:
 # METRICS
 # =============================================================================
 def bedroc(x: np.ndarray, alpha: float, A: int, N: int) -> float:
-    """Compute BEDROC (Boltzmann-Enhanced Discrimination of ROC)."""
+    """Compute BEDROC (Boltzmann-Enhanced Discrimination of ROC).
+    
+    Args:
+        x: Normalized ranks of actives (0 = best, 1 = worst)
+        alpha: Exponential decay parameter
+        A: Number of actives
+        N: Total number of compounds
+    
+    Returns:
+        BEDROC score in [0, 1]
+    """
     if A <= 0 or N <= 1:
         return 0.0
     denom = (1.0 - np.exp(-alpha)) / alpha
     rie = np.mean(np.exp(-alpha * x)) / denom
+    # Ideal case: actives at ranks 1, 2, ..., A -> normalized positions (0, 1, ..., A-1)/(N-1)
     xideal = np.arange(A) / (N - 1)
     rie_max = np.mean(np.exp(-alpha * xideal)) / denom
-    return (rie - 1.0) / (rie_max - 1.0) if rie_max != 1.0 else 0.0
+    # Handle edge case where rie_max equals 1
+    if abs(rie_max - 1.0) < 1e-12:
+        return 0.0
+    return (rie - 1.0) / (rie_max - 1.0)
 
 
 def shrink_factors(tau: np.ndarray, tau0: float, lam: float) -> np.ndarray:
@@ -232,7 +260,7 @@ def obj_comprehensive(d):
 # HYPERPARAMETER GRID
 # =============================================================================
 def get_grid(mode: str) -> List[Tuple]:
-    """Generate hyperparameter grid based on mode.
+    """Hyperparameter grid based on mode.
     
     Grid format: (ef_weights, bedroc_rank_weights, alpha, tau0, lam, delta, gamma)
     - ef_weights: (w_ef1, w_ef5, w_ef10) - weights for EF at different cutoffs
@@ -288,19 +316,6 @@ def get_grid(mode: str) -> List[Tuple]:
             [1.0, 1.5, 2.0, 2.5, 3.0],
             [0.001, 0.01, 0.02, 0.05, 0.1]
         ))
-    elif mode == "production":
-        # Production grid - focused around optimal parameters for desired ranking
-        # Target: w_ef1=0.5, w_ef5=0.3, w_ef10=0.2, w_bedroc=0.5, w_rank=0.05
-        #         alpha=40, tau0=0.4, lam=0.25, delta=1.5, gamma=0.05
-        return list(itertools.product(
-            [(0.5, 0.3, 0.2), (0.6, 0.25, 0.15), (0.55, 0.28, 0.17)],
-            [(0.5, 0.05), (0.6, 0.05), (0.55, 0.05)],
-            [5.0, 20.0, 40.0],
-            [0.1, 0.3, 0.4],
-            [0.1, 0.25, 0.5],
-            [1.5, 2.0, 3.0],
-            [0.05, 0.1]
-        ))
     else:  # default
         # Balanced grid (~2000 configs)
         return list(itertools.product(
@@ -331,7 +346,7 @@ def fmt(m: float, s: float, d: int = 2) -> str:
 def generate_latex_tables(table5: pd.DataFrame, s_individual: Dict, s_eq: Dict, 
                           s_cwra: Dict, s_random: Dict, final_params: Dict,
                           mod_labels: List, mod_names: List) -> str:
-    """Generate LaTeX tables for manuscript."""
+    """LaTeX tables for manuscript."""
     lines = []
     
     # Table 1: Modality Weights
@@ -357,16 +372,23 @@ def generate_latex_tables(table5: pd.DataFrame, s_individual: Dict, s_eq: Dict,
 """)
     
     # Table 2: Performance Comparison
-    lines.append(r"""% Table 2: Performance Comparison
-\begin{table*}[htbp]
-\centering
-\caption{Hit recovery under scaffold-grouped nested CV. Values are mean $\pm$ std across folds. EF@k\% measures enrichment factor at top k\% of the ranked database.}
-\label{tab:fusion_performance}
-\small
-\begin{tabular}{@{}llccccc@{}}
-\toprule
-Category & Method & EF@1\% & EF@5\% & EF@10\% & Hits@10\% & Hits@20\% \\
-\midrule""")
+    # Determine caption based on evaluation mode
+    is_fixed_weights = final_params.get('mode') == 'fixed_optimal_weights'
+    if is_fixed_weights:
+        caption = "Hit recovery using fixed optimal weights on full dataset. EF@k\\% measures enrichment factor at top k\\% of the ranked database."
+    else:
+        caption = "Hit recovery under scaffold-grouped nested CV. Values are mean $\\pm$ std across folds. EF@k\\% measures enrichment factor at top k\\% of the ranked database."
+    
+    lines.append(f"""% Table 2: Performance Comparison
+\\begin{{table*}}[htbp]
+\\centering
+\\caption{{{caption}}}
+\\label{{tab:fusion_performance}}
+\\small
+\\begin{{tabular}}{{@{{}}llccccc@{{}}}}
+\\toprule
+Category & Method & EF@1\\% & EF@5\\% & EF@10\\% & Hits@10\\% & Hits@20\\% \\\\
+\\midrule""")
     
     # Sort modalities by EF@10%
     sorted_mods = sorted(zip(mod_names, mod_labels), 
@@ -410,12 +432,13 @@ Category & Method & EF@1\% & EF@5\% & EF@10\% & Hits@10\% & Hits@20\% \\
 \hline""")
     
     if final_params:
-        lines.append(f"BEDROC decay $\\alpha_{{\\mathrm{{B}}}}$ & $\\{{5.0, 10.0, ..., 160.0\\}}$ & {final_params.get('alpha', 'N/A')} \\\\")
-        lines.append(f"Corr. threshold $\\tau_0$ & $\\{{0.2, 0.3, 0.4, 0.5, 0.6\\}}$ & {final_params.get('tau0', 0):.1f} \\\\")
-        lines.append(f"Shrinkage $\\lambda$ & $\\{{0.0, 0.1, 0.25, 0.5, 1.0, 2.0\\}}$ & {final_params.get('lam', 0):.1f} \\\\")
-        lines.append(f"Power transform $\\delta$ & $\\{{0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0\\}}$ & {final_params.get('delta', 0):.1f} \\\\")
-        lines.append(f"Uniform mix $\\gamma$ & $\\{{0.001, 0.005, ..., 0.2\\}}$ & {final_params.get('gamma', 0):.3f} \\\\")
-        lines.append(f"EF weights $(a,b,c)$ & see grid & ({final_params.get('w_ef1', 0):.1f}, {final_params.get('w_ef5', 0):.1f}, {final_params.get('w_ef10', 0):.1f}) \\\\")
+        # Use actual grid values from get_grid() - optimal mode values
+        lines.append(f"BEDROC decay $\\alpha_{{\\mathrm{{B}}}}$ & $\\{{5.0, 10.0, 20.0, 40.0, 80.0\\}}$ & {final_params.get('alpha', 'N/A')} \\\\")
+        lines.append(f"Corr. threshold $\\tau_0$ & $\\{{0.05, 0.1, 0.15, 0.2, 0.3\\}}$ & {final_params.get('tau0', 0):.2f} \\\\")
+        lines.append(f"Shrinkage $\\lambda$ & $\\{{0.0, 0.1, 0.25, 0.5\\}}$ & {final_params.get('lam', 0):.2f} \\\\")
+        lines.append(f"Power transform $\\delta$ & $\\{{1.0, 1.5, 2.0, 2.5\\}}$ & {final_params.get('delta', 0):.1f} \\\\")
+        lines.append(f"Uniform mix $\\gamma$ & $\\{{0.0, 0.001, 0.01, 0.05\\}}$ & {final_params.get('gamma', 0):.3f} \\\\")
+        lines.append(f"EF weights $(a,b,c)$ & see grid & ({final_params.get('w_ef1', 0):.2f}, {final_params.get('w_ef5', 0):.2f}, {final_params.get('w_ef10', 0):.2f}) \\\\")
         lines.append(f"BEDROC/rank weights & see grid & ({final_params.get('w_bedroc', 0):.2f}, {final_params.get('w_rank', 0):.2f}) \\\\")
     
     lines.append(r"""\hline
@@ -450,7 +473,7 @@ def main() -> None:
                     choices=["early", "balanced", "standard", "comprehensive"],
                     help="Optimization focus")
     ap.add_argument("--grid_mode", type=str, default="optimal",
-                    choices=["narrow", "optimal", "default", "wide", "extended", "production"],
+                    choices=["narrow", "optimal", "default", "wide", "extended"],
                     help="Hyperparameter grid size")
     ap.add_argument("--output_prefix", type=str, default="results",
                     help="Prefix for output files")
@@ -458,8 +481,10 @@ def main() -> None:
                     help="Number of top/bottom structures to extract")
     ap.add_argument("--n_jobs", type=int, default=-1,
                     help="Number of parallel jobs (-1 for all cores)")
-    ap.add_argument("--apply_weights", action="store_true",
-                    help="Apply predefined optimal weights directly (skip CV)")
+    ap.add_argument("--fixed_weights", action="store_true",
+                    help="Use optimal fixed weights instead of CV-learned weights")
+    ap.add_argument("--exclude_newref", action="store_true", default=True,
+                    help="Exclude newRef_137 compounds from analysis")
     args = ap.parse_args()
 
     print("=" * 70)
@@ -468,9 +493,6 @@ def main() -> None:
     
     # Load data
     df = pd.read_csv(args.csv)
-    # Fix unnamed first column (index saved as column)
-    if df.columns[0].strip() == '':
-        df = df.rename(columns={df.columns[0]: 'compound_id'})
     df["murcko"] = df["smiles"].map(murcko_smiles)
     
     # Filter pool (exclude newRef_137)
@@ -534,75 +556,6 @@ def main() -> None:
     topk_idx = {name: np.stack([orders[j][:k] for j in range(E)], axis=1) 
                 for name, k in cutoffs.items()}
     
-    # Handle apply_weights mode - skip CV and use predefined weights
-    if args.apply_weights:
-        print("\n" + "=" * 70)
-        print("Applying predefined optimal weights (skipping CV)")
-        print("=" * 70)
-        
-        # Exact weights from user's results_table5_weights.csv
-        predefined_weights = {
-            "GraphDTA_Kd": 0.08950054219298274,
-            "GraphDTA_Ki": 0.08399349845137472,
-            "GraphDTA_IC50": 0.10483213801674623,
-            "MLTLE_pKd": 0.0954557848731771,
-            "Vina": 0.02628312015779514,
-            "Boltz_affinity": 0.033191593641758665,
-            "Boltz_confidence": 0.07683788004411779,
-            "UniMol_sim": 0.2954181682143145,
-            "TankBind": 0.012720492385344926,
-            "DrugBAN": 0.08509471997448421,
-            "MolTrans": 0.09667206204790409,
-        }
-        
-        # Normalize to sum to 1
-        w = np.array([predefined_weights[name] for name in mod_names])
-        w = w / w.sum()
-        
-        print("Applied weights:")
-        for name, weight in zip(mod_names, w):
-            print(f"  {name}: {weight:.4f}")
-        
-        # Compute CWRA score
-        sc_cwra = ranks01.dot(w)
-        df_pool["cwra_score"] = sc_cwra
-        df_pool["cwra_rank"] = sc_cwra.argsort().argsort() + 1
-        
-        # Add individual ranks
-        for j, name in enumerate(mod_names):
-            df_pool[f"rank_{mod_cols[j]}"] = ranks[:, j]
-        
-        # Compute EF metrics on actives vs all
-        test_mask = active_mask.copy()
-        cutoffs_eval = {str(p): max(1, math.ceil(p * N / 100)) for p in CUTOFF_PCTS}
-        d_cwra = eval_at_cutoffs(sc_cwra, test_mask, cutoffs_eval, N)
-        
-        # Baselines
-        uniform_w = np.ones(E) / E
-        sc_eq = ranks01.dot(uniform_w)
-        d_eq = eval_at_cutoffs(sc_eq, test_mask, cutoffs_eval, N)
-        
-        # Individual modalities
-        print("\nPerformance metrics:")
-        print(f"  CWRA:         EF@1%={d_cwra['ef1']:.2f}  EF@5%={d_cwra['ef5']:.2f}  EF@10%={d_cwra['ef10']:.2f}")
-        print(f"  Equal-weight: EF@1%={d_eq['ef1']:.2f}  EF@5%={d_eq['ef5']:.2f}  EF@10%={d_eq['ef10']:.2f}")
-        
-        for j in range(E):
-            sc = ranks01[:, j]
-            d_ind = eval_at_cutoffs(sc, test_mask, cutoffs_eval, N)
-            print(f"  {mod_names[j]:20s}: EF@1%={d_ind['ef1']:.2f}  EF@10%={d_ind['ef10']:.2f}")
-        
-        # Save results
-        df_pool.sort_values("cwra_rank").to_csv(f"{args.output_prefix}_full_ranking.csv", index=False)
-        
-        # Top/bottom generated
-        df_g = df_pool[g_mask].copy()
-        df_g.sort_values("cwra_rank").head(args.top_n).to_csv(f"{args.output_prefix}_top{args.top_n}_G.csv", index=False)
-        df_g.sort_values("cwra_rank").tail(args.top_n).to_csv(f"{args.output_prefix}_bottom{args.top_n}_G.csv", index=False)
-        
-        print(f"\nFiles saved: {args.output_prefix}_*.csv")
-        return
-    
     # Grid and shrinkage cache
     grid_raw = get_grid(args.grid_mode)
     grid = flatten_grid(grid_raw)
@@ -619,184 +572,253 @@ def main() -> None:
     n_scaf = len(np.unique(act_groups))
     outer_splits = min(args.outer_splits, n_scaf, len(act_groups))
     
-    print(f"\nCV: {args.outer_repeats} repeats × {outer_splits} outer folds")
-    print("=" * 70)
-    
-    fold_results = []
-    chosen_params = []
     uniform_w = np.ones(E) / E
     
-    # Nested CV
-    for rep in range(args.outer_repeats):
-        rng = np.random.default_rng(args.seed + rep)
-        splits = balanced_group_kfold(act_groups, outer_splits, rng)
+    # Fixed weights mode - skip CV
+    if args.fixed_weights:
+        print(f"\nUsing fixed optimal weights (skipping CV)")
+        print("=" * 70)
         
-        for fold, (tr_idx, te_idx) in enumerate(splits, 1):
-            train_act = act_idx_all[tr_idx]
-            test_act = act_idx_all[te_idx]
-            if len(test_act) == 0 or len(train_act) < 2:
-                continue
+        # Create fixed weight vector
+        w_final = np.array([OPTIMAL_FIXED_WEIGHTS[col] for col in mod_cols])
+        w_final = w_final / w_final.sum()
+        
+        print("\nFixed weights:")
+        for name, w in sorted(zip(mod_names, w_final), key=lambda x: -x[1]):
+            if w > 0.001:
+                print(f"  {name}: {w:.4f}")
+        
+        # hyperparameters used to derive optimal weights
+        # OPTIMAL_FIXED_WEIGHTS
+        final_params = {
+            "mode": "fixed_optimal_weights",
+            "alpha": 20.0,
+            "tau0": 0.15,
+            "lam": 0.25,
+            "delta": 2.0,
+            "gamma": 0.001,
+            "w_ef1": 0.5,
+            "w_ef5": 0.3,
+            "w_ef10": 0.2,
+            "w_bedroc": 0.45,
+            "w_rank": 0.1,
+        }
+        
+        # Compute metrics on full dataset
+        ef_terms, mean_rank, rank_score, bedroc_vals = calc_modality_metrics(
+            act_idx_all, ranks, ranks01, topk_idx, cutoffs, N, 20.0)
+        
+        # Compute full-dataset EF for CWRA and baselines
+        test_mask_full = active_mask  # Evaluate on all actives
+        
+        # CWRA score
+        sc_cwra = ranks01.dot(w_final)
+        d_cwra_full = eval_at_cutoffs(sc_cwra, test_mask_full, cutoffs, N)
+        
+        # Equal weight
+        sc_eq = ranks01.mean(axis=1)
+        d_eq_full = eval_at_cutoffs(sc_eq, test_mask_full, cutoffs, N)
+        
+        # Random (expected value)
+        d_rand_full = {f"ef{c}": 1.0 for c in cutoffs}
+        d_rand_full.update({f"h{c}": cutoffs[c] * A_all / N for c in cutoffs})
+        
+        # Individual modalities
+        d_ind_full = {}
+        for j, mod in enumerate(mod_names):
+            sc = ranks01[:, j]
+            d_ind_full[mod] = eval_at_cutoffs(sc, test_mask_full, cutoffs, N)
+        
+        # Set results (full dataset, no std dev)
+        fold_results = []
+        s_cwra = {f"ef{c}": (d_cwra_full[f"ef{c}"], 0.0) for c in cutoffs}
+        s_cwra.update({f"h{c}": (d_cwra_full[f"h{c}"], 0.0) for c in cutoffs})
+        
+        s_eq = {f"ef{c}": (d_eq_full[f"ef{c}"], 0.0) for c in cutoffs}
+        s_eq.update({f"h{c}": (d_eq_full[f"h{c}"], 0.0) for c in cutoffs})
+        
+        s_random = {f"ef{c}": (1.0, 0.0) for c in cutoffs}
+        s_random.update({f"h{c}": (cutoffs[c] * A_all / N, 0.0) for c in cutoffs})
+        
+        s_individual = {}
+        for mod in mod_names:
+            s_individual[mod] = {f"ef{c}": (d_ind_full[mod][f"ef{c}"], 0.0) for c in cutoffs}
+            s_individual[mod].update({f"h{c}": (d_ind_full[mod][f"h{c}"], 0.0) for c in cutoffs})
+        
+    else:
+        print(f"\nCV: {args.outer_repeats} repeats × {outer_splits} outer folds")
+        print("=" * 70)
+        
+        fold_results = []
+        chosen_params = []
+        
+        # Nested CV
+        for rep in range(args.outer_repeats):
+            rng = np.random.default_rng(args.seed + rep)
+            splits = balanced_group_kfold(act_groups, outer_splits, rng)
             
-            train_groups = act_groups[tr_idx]
-            n_inner = min(args.inner_splits, len(np.unique(train_groups)), len(train_act))
-            
-            # Inner CV pairs
-            if len(np.unique(train_groups)) >= n_inner:
-                inner_cv = GroupKFold(n_splits=n_inner)
-                inner_pairs = [(train_act[itr], train_act[iva]) 
-                               for itr, iva in inner_cv.split(train_act, groups=train_groups)]
-            else:
-                inner_cv = KFold(n_splits=n_inner, shuffle=True, random_state=args.seed + rep)
-                inner_pairs = [(train_act[itr], train_act[iva]) 
-                               for itr, iva in inner_cv.split(train_act)]
-            
-            inner_pairs = [(tr, va) for tr, va in inner_pairs if len(va) >= 1]
-            if not inner_pairs:
-                continue
-            
-            # Parallel grid search
-            results = Parallel(n_jobs=args.n_jobs, prefer="threads")(
-                delayed(eval_inner)(p, inner_pairs, ranks, ranks01, topk_idx, cutoffs, 
-                                    N, shrink_cache, objective_fn, E)
-                for p in grid
-            )
-            
-            best_score, best_param = -1e18, None
-            for p, m, s in results:
-                score = m - args.risk_beta * s
-                if score > best_score:
-                    best_score, best_param = score, p
-            
-            chosen_params.append(best_param)
-            
-            # Evaluate outer fold
-            params = dict(zip(['w_ef1', 'w_ef5', 'w_ef10', 'w_bedroc', 'w_rank', 
-                               'alpha', 'tau0', 'lam', 'delta', 'gamma'], best_param))
-            shrink = shrink_cache[(params['tau0'], params['lam'])]
-            
-            ef_terms, _, rank_score, bedroc_vals = calc_modality_metrics(
-                train_act, ranks, ranks01, topk_idx, cutoffs, N, params['alpha'])
-            w_mix = compute_weights(ef_terms, rank_score, bedroc_vals, shrink, params, E)
-            
-            # CWRA score
-            sc_cwra = ranks01.dot(w_mix)
-            sc_cwra[train_act] = np.inf
-            test_mask = np.zeros(N, bool)
-            test_mask[test_act] = True
-            d_cwra = eval_at_cutoffs(sc_cwra, test_mask, cutoffs, N)
-            
-            # Baselines
-            sc_eq = ranks01.dot(uniform_w)
-            sc_eq[train_act] = np.inf
-            d_eq = eval_at_cutoffs(sc_eq, test_mask, cutoffs, N)
-            
-            sc_rand = rng.random(N)
-            sc_rand[train_act] = np.inf
-            d_rand = eval_at_cutoffs(sc_rand, test_mask, cutoffs, N)
-            
-            # Individual modalities
-            d_ind = {}
-            for j in range(E):
-                sc = ranks01[:, j].copy()
-                sc[train_act] = np.inf
-                d_ind[mod_names[j]] = eval_at_cutoffs(sc, test_mask, cutoffs, N)
-            
-            fold_results.append({
-                "rep": rep + 1, "fold": fold, "params": params,
-                "cwra": d_cwra, "equal": d_eq, "random": d_rand,
-                "individual": d_ind, "weights": w_mix, "A_test": len(test_act)
-            })
-            
-            print(f"[R{rep+1}F{fold}] CWRA EF@1%={d_cwra['ef1']:.2f} EF@5%={d_cwra['ef5']:.2f} "
-                  f"EF@10%={d_cwra['ef10']:.2f} | Eq={d_eq['ef10']:.2f}")
+            for fold, (tr_idx, te_idx) in enumerate(splits, 1):
+                train_act = act_idx_all[tr_idx]
+                test_act = act_idx_all[te_idx]
+                if len(test_act) == 0 or len(train_act) < 2:
+                    continue
+                
+                train_groups = act_groups[tr_idx]
+                n_inner = min(args.inner_splits, len(np.unique(train_groups)), len(train_act))
+                
+                # Inner CV pairs
+                if len(np.unique(train_groups)) >= n_inner:
+                    inner_cv = GroupKFold(n_splits=n_inner)
+                    inner_pairs = [(train_act[itr], train_act[iva]) 
+                                   for itr, iva in inner_cv.split(train_act, groups=train_groups)]
+                else:
+                    inner_cv = KFold(n_splits=n_inner, shuffle=True, random_state=args.seed + rep)
+                    inner_pairs = [(train_act[itr], train_act[iva]) 
+                                   for itr, iva in inner_cv.split(train_act)]
+                
+                inner_pairs = [(tr, va) for tr, va in inner_pairs if len(va) >= 1]
+                if not inner_pairs:
+                    continue
+                
+                # Parallel grid search
+                results = Parallel(n_jobs=args.n_jobs, prefer="threads")(
+                    delayed(eval_inner)(p, inner_pairs, ranks, ranks01, topk_idx, cutoffs, 
+                                        N, shrink_cache, objective_fn, E)
+                    for p in grid
+                )
+                
+                best_score, best_param = -1e18, None
+                for p, m, s in results:
+                    score = m - args.risk_beta * s
+                    if score > best_score:
+                        best_score, best_param = score, p
+                
+                chosen_params.append(best_param)
+                
+                # Evaluate outer fold
+                params = dict(zip(['w_ef1', 'w_ef5', 'w_ef10', 'w_bedroc', 'w_rank', 
+                                   'alpha', 'tau0', 'lam', 'delta', 'gamma'], best_param))
+                shrink = shrink_cache[(params['tau0'], params['lam'])]
+                
+                ef_terms, _, rank_score, bedroc_vals = calc_modality_metrics(
+                    train_act, ranks, ranks01, topk_idx, cutoffs, N, params['alpha'])
+                w_mix = compute_weights(ef_terms, rank_score, bedroc_vals, shrink, params, E)
+                
+                # CWRA score
+                sc_cwra = ranks01.dot(w_mix)
+                sc_cwra[train_act] = np.inf
+                test_mask = np.zeros(N, bool)
+                test_mask[test_act] = True
+                d_cwra = eval_at_cutoffs(sc_cwra, test_mask, cutoffs, N)
+                
+                # Baselines
+                sc_eq = ranks01.dot(uniform_w)
+                sc_eq[train_act] = np.inf
+                d_eq = eval_at_cutoffs(sc_eq, test_mask, cutoffs, N)
+                
+                sc_rand = rng.random(N)
+                sc_rand[train_act] = np.inf
+                d_rand = eval_at_cutoffs(sc_rand, test_mask, cutoffs, N)
+                
+                # Individual modalities
+                d_ind = {}
+                for j in range(E):
+                    sc = ranks01[:, j].copy()
+                    sc[train_act] = np.inf
+                    d_ind[mod_names[j]] = eval_at_cutoffs(sc, test_mask, cutoffs, N)
+                
+                fold_results.append({
+                    "rep": rep + 1, "fold": fold, "params": params,
+                    "cwra": d_cwra, "equal": d_eq, "random": d_rand,
+                    "individual": d_ind, "weights": w_mix, "A_test": len(test_act)
+                })
+                
+                print(f"[R{rep+1}F{fold}] CWRA EF@1%={d_cwra['ef1']:.2f} EF@5%={d_cwra['ef5']:.2f} "
+                      f"EF@10%={d_cwra['ef10']:.2f} | Eq={d_eq['ef10']:.2f}")
+        
+        if not fold_results:
+            raise RuntimeError("No valid CV folds completed")
+        
+        # Final parameters (majority vote)
+        print("\n" + "=" * 70)
+        print("Final Results")
+        print("=" * 70)
+        
+        arr = np.array(chosen_params, dtype=object)
+        final_param = tuple(Counter(arr[:, j]).most_common(1)[0][0] for j in range(arr.shape[1]))
+        final_params = dict(zip(['w_ef1', 'w_ef5', 'w_ef10', 'w_bedroc', 'w_rank', 
+                                 'alpha', 'tau0', 'lam', 'delta', 'gamma'], final_param))
+        
+        print("\nSelected hyperparameters:")
+        for k, v in final_params.items():
+            print(f"  {k}: {v}")
+        
+        # Compute final weights
+        shrink = shrink_cache[(final_params['tau0'], final_params['lam'])]
+        ef_terms, mean_rank, rank_score, bedroc_vals = calc_modality_metrics(
+            act_idx_all, ranks, ranks01, topk_idx, cutoffs, N, final_params['alpha'])
+        w_final = compute_weights(ef_terms, rank_score, bedroc_vals, shrink, final_params, E)
+        
+        print("\nFinal weights:")
+        for name, w in sorted(zip(mod_names, w_final), key=lambda x: -x[1]):
+            print(f"  {name}: {w:.4f}")
+        
+        # Aggregate CV results
+        def agg_results(key):
+            vals = {}
+            for c in cutoffs.keys():
+                h_arr = np.array([fr[key][f"h{c}"] for fr in fold_results])
+                ef_arr = np.array([fr[key][f"ef{c}"] for fr in fold_results])
+                vals[f"h{c}"] = (h_arr.mean(), h_arr.std(ddof=1) if len(h_arr) > 1 else 0)
+                vals[f"ef{c}"] = (ef_arr.mean(), ef_arr.std(ddof=1) if len(ef_arr) > 1 else 0)
+            return vals
+        
+        s_cwra = agg_results("cwra")
+        s_eq = agg_results("equal")
+        s_random = agg_results("random")
+        
+        s_individual = {}
+        for mod in mod_names:
+            vals = {}
+            for c in cutoffs.keys():
+                h_arr = np.array([fr["individual"][mod][f"h{c}"] for fr in fold_results])
+                ef_arr = np.array([fr["individual"][mod][f"ef{c}"] for fr in fold_results])
+                vals[f"h{c}"] = (h_arr.mean(), h_arr.std(ddof=1) if len(h_arr) > 1 else 0)
+                vals[f"ef{c}"] = (ef_arr.mean(), ef_arr.std(ddof=1) if len(ef_arr) > 1 else 0)
+            s_individual[mod] = vals
+        
+        # Compute mean_rank for table5
+        ef_terms, mean_rank, _, _ = calc_modality_metrics(
+            act_idx_all, ranks, ranks01, topk_idx, cutoffs, N, final_params.get('alpha', 20.0))
     
-    if not fold_results:
-        raise RuntimeError("No valid CV folds completed")
-    
-    # Final parameters (majority vote)
-    print("\n" + "=" * 70)
-    print("Final Results")
-    print("=" * 70)
-    
-    arr = np.array(chosen_params, dtype=object)
-    final_param = tuple(Counter(arr[:, j]).most_common(1)[0][0] for j in range(arr.shape[1]))
-    final_params = dict(zip(['w_ef1', 'w_ef5', 'w_ef10', 'w_bedroc', 'w_rank', 
-                             'alpha', 'tau0', 'lam', 'delta', 'gamma'], final_param))
-    
-    print("\nSelected hyperparameters:")
-    for k, v in final_params.items():
-        print(f"  {k}: {v}")
-    
-    # Compute final weights
-    shrink = shrink_cache[(final_params['tau0'], final_params['lam'])]
-    ef_terms, mean_rank, rank_score, bedroc_vals = calc_modality_metrics(
-        act_idx_all, ranks, ranks01, topk_idx, cutoffs, N, final_params['alpha'])
-    w_final = compute_weights(ef_terms, rank_score, bedroc_vals, shrink, final_params, E)
-    
-    print("\nFinal weights:")
-    for name, w in sorted(zip(mod_names, w_final), key=lambda x: -x[1]):
-        print(f"  {name}: {w:.4f}")
-    
-    # Aggregate CV results
-    def agg_results(key):
-        vals = {}
-        for c in cutoffs.keys():
-            h_arr = np.array([fr[key][f"h{c}"] for fr in fold_results])
-            ef_arr = np.array([fr[key][f"ef{c}"] for fr in fold_results])
-            vals[f"h{c}"] = (h_arr.mean(), h_arr.std(ddof=1) if len(h_arr) > 1 else 0)
-            vals[f"ef{c}"] = (ef_arr.mean(), ef_arr.std(ddof=1) if len(ef_arr) > 1 else 0)
-        return vals
-    
-    s_cwra = agg_results("cwra")
-    s_eq = agg_results("equal")
-    s_random = agg_results("random")
-    
-    s_individual = {}
-    for mod in mod_names:
-        vals = {}
-        for c in cutoffs.keys():
-            h_arr = np.array([fr["individual"][mod][f"h{c}"] for fr in fold_results])
-            ef_arr = np.array([fr["individual"][mod][f"ef{c}"] for fr in fold_results])
-            vals[f"h{c}"] = (h_arr.mean(), h_arr.std(ddof=1) if len(h_arr) > 1 else 0)
-            vals[f"ef{c}"] = (ef_arr.mean(), ef_arr.std(ddof=1) if len(ef_arr) > 1 else 0)
-        s_individual[mod] = vals
-    
-    # Table 5: Modality weights (round for cleaner output)
+    # Table 5: Modality weights
     table5 = pd.DataFrame({
         "Modality": mod_labels,
-        "Weight": np.round(w_final, 4),
-        "EF@1%": np.round(ef_terms["1"], 2),
-        "EF@5%": np.round(ef_terms["5"], 2),
-        "EF@10%": np.round(ef_terms["10"], 2),
-        "Mean_Rank": np.round(mean_rank, 1)
+        "Weight": w_final,
+        "EF@1%": ef_terms["1"],
+        "EF@5%": ef_terms["5"],
+        "EF@10%": ef_terms["10"],
+        "Mean_Rank": mean_rank
     })
-    
-    # Helper function for formatting
-    def fmt_ef(m, s):
-        return f"{m:.2f} ± {s:.2f}"
-    
-    def fmt_hits(m, k):
-        # Format as "N/k" showing mean actives found out of top-k compounds
-        return f"{m:.1f}/{k}"
     
     # Table 6: Performance
     rows = []
     rows.append({"Method": "Random", 
-                 **{f"EF@{c}%": fmt_ef(s_random[f'ef{c}'][0], s_random[f'ef{c}'][1]) for c in cutoffs},
-                 **{f"Hits@{c}%": fmt_hits(s_random[f'h{c}'][0], cutoffs[c]) for c in cutoffs}})
+                 **{f"EF@{c}%": f"{s_random[f'ef{c}'][0]:.2f} ± {s_random[f'ef{c}'][1]:.2f}" for c in cutoffs},
+                 **{f"Hits@{c}%": f"{s_random[f'h{c}'][0]:.2f} ± {s_random[f'h{c}'][1]:.2f}" for c in cutoffs}})
     
     for mod in mod_names:
         s = s_individual[mod]
         rows.append({"Method": mod, 
-                     **{f"EF@{c}%": fmt_ef(s[f'ef{c}'][0], s[f'ef{c}'][1]) for c in cutoffs},
-                     **{f"Hits@{c}%": fmt_hits(s[f'h{c}'][0], cutoffs[c]) for c in cutoffs}})
+                     **{f"EF@{c}%": f"{s[f'ef{c}'][0]:.2f} ± {s[f'ef{c}'][1]:.2f}" for c in cutoffs},
+                     **{f"Hits@{c}%": f"{s[f'h{c}'][0]:.2f} ± {s[f'h{c}'][1]:.2f}" for c in cutoffs}})
     
     rows.append({"Method": "Equal-weight", 
-                 **{f"EF@{c}%": fmt_ef(s_eq[f'ef{c}'][0], s_eq[f'ef{c}'][1]) for c in cutoffs},
-                 **{f"Hits@{c}%": fmt_hits(s_eq[f'h{c}'][0], cutoffs[c]) for c in cutoffs}})
+                 **{f"EF@{c}%": f"{s_eq[f'ef{c}'][0]:.2f} ± {s_eq[f'ef{c}'][1]:.2f}" for c in cutoffs},
+                 **{f"Hits@{c}%": f"{s_eq[f'h{c}'][0]:.2f} ± {s_eq[f'h{c}'][1]:.2f}" for c in cutoffs}})
     rows.append({"Method": "CWRA-early", 
-                 **{f"EF@{c}%": fmt_ef(s_cwra[f'ef{c}'][0], s_cwra[f'ef{c}'][1]) for c in cutoffs},
-                 **{f"Hits@{c}%": fmt_hits(s_cwra[f'h{c}'][0], cutoffs[c]) for c in cutoffs}})
+                 **{f"EF@{c}%": f"{s_cwra[f'ef{c}'][0]:.2f} ± {s_cwra[f'ef{c}'][1]:.2f}" for c in cutoffs},
+                 **{f"Hits@{c}%": f"{s_cwra[f'h{c}'][0]:.2f} ± {s_cwra[f'h{c}'][1]:.2f}" for c in cutoffs}})
     
     table6 = pd.DataFrame(rows)
     
@@ -826,7 +848,7 @@ def main() -> None:
     } for k, v in final_params.items()])
     hp_df.to_csv(f"{prefix}_hyperparameters.csv", index=False)
     
-    # Generate LaTeX
+    # LaTeX
     latex = generate_latex_tables(table5, s_individual, s_eq, s_cwra, s_random, 
                                    final_params, mod_labels, mod_names)
     with open(f"{prefix}_latex_tables.tex", "w") as f:

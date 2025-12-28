@@ -35,39 +35,63 @@ pip install -e ".[dev]"
 - scipy>=1.7.0
 - scikit-learn>=1.0.0
 - rdkit>=2021.03.1
+- joblib>=1.0.0
 
 ## Quick Start
 
 ### Command Line
 
 ```bash
-# Quick test (narrow grid, few folds)
-python -m cwra --csv data/labeled_raw_modalities.csv --grid_mode narrow --outer_splits 3 --outer_repeats 1
+# Recommended: Use fixed optimal weights (fast, production-ready)
+cwra --csv data/labeled_raw_modalities.csv --fixed_weights --output_prefix results
 
-# Standard run (optimal grid, 5×5 CV)
-python -m cwra --csv data/labeled_raw_modalities.csv --grid_mode optimal --outer_splits 5 --outer_repeats 5 --output_prefix results/results
+# Quick CV test
+cwra --csv data/labeled_raw_modalities.csv --outer_repeats 1 --outer_splits 3 --focus early
 
-# Apply predefined weights (skip CV)
-python -m cwra --csv data/labeled_raw_modalities.csv --apply_weights --output_prefix results_direct
+# Full CV run (slower, for hyperparameter tuning)
+cwra --csv data/labeled_raw_modalities.csv --outer_repeats 5 --outer_splits 10 --focus early --output_prefix results
 ```
 
 ### Python API
 
 ```python
+import subprocess
+import sys
+
+# Run CWRA from Python using subprocess
+result = subprocess.run([
+    sys.executable, "-m", "cwra",
+    "--csv", "data/labeled_raw_modalities.csv",
+    "--fixed_weights",
+    "--output_prefix", "results"
+], capture_output=True, text=True)
+print(result.stdout)
+```
+
+Or import and use the core functions directly:
+
+```python
 import pandas as pd
-from cwra import CWRA
-
-df = pd.read_csv('your_data.csv')
-
-cwra = CWRA(
-    modalities=['graphdta_kd', 'vina_score', 'boltz_affinity'],
-    focus='early',
-    n_repeats=3,
-    n_splits=5
+import numpy as np
+from cwra import (
+    murcko_smiles, 
+    bedroc, 
+    compute_weights,
+    calc_modality_metrics,
+    eval_at_cutoffs,
+    MODALITIES,
+    OPTIMAL_FIXED_WEIGHTS
 )
 
-results = cwra.fit_predict(df)
-print(results.summary())
+# Load your data
+df = pd.read_csv('your_data.csv')
+
+# Use optimal fixed weights for scoring
+mod_cols = [m[0] for m in MODALITIES]
+weights = np.array([OPTIMAL_FIXED_WEIGHTS[col] for col in mod_cols])
+weights = weights / weights.sum()
+
+# ... compute ranks and aggregate with weights
 ```
 
 ## Project Structure
@@ -78,13 +102,11 @@ cwra-vdr/
 │   ├── __init__.py
 │   └── cwra.py
 ├── docs/
-├── scripts/
 ├── .github/
 │   ├── workflows/
 │   │   └── ci.yml
 │   ├── ISSUE_TEMPLATE/
 │   └── PULL_REQUEST_TEMPLATE/
-├── tests/
 ├── pyproject.toml
 ├── setup.py
 ├── requirements.txt
@@ -112,43 +134,31 @@ cwra-vdr/
 
 ## Performance
 
-Cross-validated performance using scaffold-grouped nested CV (5 folds × 3 repeats). EF@k% measures enrichment factor at top k% of the ranked database. Values are mean ± standard deviation.
+Results from fixed optimal weights evaluation on 366 actives (initial_370 + calcitriol). 
 
-### Method Comparison (CV Results)
+### Method Comparison
 
-| Category | Method | EF@1% | EF@5% | EF@10% | EF@20% | EF@30% |
-|----------|--------|-------|-------|--------|--------|--------|
-| Fusion | **CWRA** | **3.78 ± 2.60** | **3.18 ± 1.65** | 2.47 ± 1.00 | 2.02 ± 0.55 | 1.75 ± 0.40 |
-| Fusion | Equal-weight | 3.68 ± 1.91 | 2.89 ± 1.12 | **2.61 ± 0.64** | **2.08 ± 0.43** | **1.76 ± 0.30** |
-| Single | UniMol similarity | 3.18 ± 2.94 | 2.53 ± 2.09 | 2.10 ± 1.50 | 1.93 ± 0.83 | 1.61 ± 0.49 |
-| Single | MLTLE pKd | 3.21 ± 2.90 | 1.84 ± 0.74 | 1.55 ± 0.55 | 1.43 ± 0.41 | 1.46 ± 0.36 |
-| Single | GraphDTA-Kd | 2.64 ± 1.55 | 2.30 ± 0.63 | 1.90 ± 0.58 | 1.75 ± 0.44 | 1.60 ± 0.39 |
-| Single | GraphDTA-Ki | 2.46 ± 2.25 | 2.26 ± 0.67 | 2.02 ± 0.65 | 1.74 ± 0.41 | 1.64 ± 0.34 |
-| Single | GraphDTA-IC50 | 2.40 ± 1.46 | 2.34 ± 0.83 | 1.98 ± 0.51 | 1.71 ± 0.40 | 1.63 ± 0.31 |
-| Single | MolTrans | 2.04 ± 1.16 | 1.52 ± 0.58 | 1.46 ± 0.38 | 1.14 ± 0.24 | 1.20 ± 0.17 |
-| Single | AutoDock Vina | 0.94 ± 1.24 | 1.87 ± 0.87 | 1.87 ± 0.79 | 1.80 ± 0.55 | 1.67 ± 0.38 |
-| Single | Boltz-2 confidence | 1.14 ± 0.92 | 2.01 ± 0.63 | 1.71 ± 0.45 | 1.81 ± 0.22 | 1.66 ± 0.19 |
-| Single | Boltz-2 affinity | 0.97 ± 0.89 | 1.57 ± 0.71 | 1.68 ± 0.63 | 1.64 ± 0.59 | 1.46 ± 0.45 |
-| Single | DrugBAN | 1.27 ± 1.87 | 1.80 ± 0.94 | 1.51 ± 0.68 | 1.51 ± 0.47 | 1.44 ± 0.34 |
-| Single | TankBind | 0.58 ± 0.73 | 0.82 ± 0.70 | 0.98 ± 0.65 | 1.16 ± 0.55 | 1.23 ± 0.52 |
-| Baseline | Random | 1.12 ± 1.06 | 1.26 ± 0.47 | 1.30 ± 0.40 | 1.26 ± 0.23 | 1.25 ± 0.17 |
-
-### Full Dataset Performance (No CV)
-
-| Metric | CWRA | Equal-weight | Best Single (UniMol) |
-|--------|------|--------------|---------------------|
-| EF@1% | 3.56 | 1.64 | 1.91 |
-| EF@5% | 2.63 | 2.30 | 1.97 |
-| EF@10% | 2.05 | 1.81 | 1.56 |
-| Hits@10% | 75 | 66 | 57 |
-| Hits@20% | 123 | 115 | 105 |
-| Hits@30% | 168 | 159 | 146 |
+| Category | Method | EF@1% | EF@5% | EF@10% | Hits@10% | Hits@20% |
+|----------|--------|-------|-------|--------|----------|----------|
+| Single | Uni-Mol similarity ↑ | 1.80 | 2.00 | 1.55 | 57.00 | 105.00 |
+| Single | Boltz-2 confidence ↑ | 1.03 | 1.30 | 1.52 | 56.00 | 94.00 |
+| Single | Boltz-2 affinity ↓ | 0.77 | 1.40 | 1.44 | 53.00 | 99.00 |
+| Single | MolTrans ↓ | 1.29 | 1.30 | 1.11 | 41.00 | 70.00 |
+| Single | DrugBAN ↓ | 0.77 | 1.13 | 1.03 | 38.00 | 66.00 |
+| Single | MLT-LE pKd ↑ | 1.03 | 1.13 | 0.92 | 34.00 | 68.00 |
+| Single | GraphDTA-IC50 ↑ | 0.77 | 1.08 | 0.87 | 32.00 | 51.00 |
+| Single | GraphDTA-Ki ↑ | 0.77 | 0.54 | 0.71 | 26.00 | 56.00 |
+| Single | GraphDTA-Kd ↑ | 0.51 | 0.43 | 0.68 | 25.00 | 61.00 |
+| Single | TankBind ↓ | 0.51 | 0.43 | 0.54 | 20.00 | 58.00 |
+| Single | AutoDock Vina ↓ | 0.00 | 0.49 | 0.49 | 18.00 | 49.00 |
+| Fusion | Equal-weight | 0.77 | 1.19 | 1.03 | 38.00 | 63.00 |
+| Fusion | **CWRA-early** | **2.06** | **1.84** | **1.63** | **60.00** | **102.00** |
+| Baseline | Random | 1.00 | 1.00 | 1.00 | 36.78 | 73.34 |
 
 **Key Results:**
-- CWRA achieves **EF@1% = 3.78 ± 2.60** in CV, outperforming all single modalities
-- CWRA beats the best single modality (UniMol) by **19%** at EF@1%
-- CWRA shows **90%** improvement over random baseline at EF@10%
-- On full dataset, CWRA recovers **75 actives** (20.5%) in top 10%, **168 actives** (45.9%) in top 30%
+- CWRA outperforms Equal-weight fusion by **168%** at EF@1% and **58%** at EF@10%
+- CWRA outperforms the best individual modality (Uni-Mol similarity) by **14%** at EF@1% and **5%** at EF@10%
+- CWRA consistently outperforms random baseline across all metrics
 
 ## Usage
 
@@ -163,11 +173,11 @@ Cross-validated performance using scaffold-grouped nested CV (5 folds × 3 repea
 | `--seed` | `42` | Random seed |
 | `--risk_beta` | `0.3` | Risk aversion parameter (mean - beta*std) |
 | `--focus` | `early` | Optimization focus: 'early', 'balanced', 'standard', 'comprehensive' |
-| `--grid_mode` | `optimal` | Grid size: 'narrow', 'optimal', 'default', 'wide', 'extended', 'production' |
+| `--grid_mode` | `optimal` | Grid size: 'narrow', 'optimal', 'default', 'wide', 'extended' |
 | `--output_prefix` | `results` | Prefix for output files |
 | `--top_n` | `25` | Number of top/bottom structures to extract |
 | `--n_jobs` | `-1` | Parallel jobs (-1 for all cores) |
-| `--apply_weights` | `False` | Apply predefined optimal weights (skip CV) |
+| `--fixed_weights` | `False` | Use optimal fixed weights instead of CV-learned weights |
 
 ### Input Format
 
@@ -195,28 +205,54 @@ The input CSV requires:
 
 ## API Reference
 
-### CWRA Class
+### Core Functions
 
 ```python
-CWRA(
-    modalities: list,       # List of modality column names
-    focus: str,             # 'early', 'balanced', 'standard'
-    aggregation: str,       # 'weighted', 'rrf', 'power'
-    n_repeats: int,         # CV repeats
-    n_splits: int,          # CV folds
-    seed: int               # Random seed
+from cwra import (
+    murcko_smiles,      # Compute Murcko scaffold from SMILES
+    bedroc,             # Compute BEDROC score
+    shrink_factors,     # Compute shrinkage factors for correlation
+    eval_at_cutoffs,    # Evaluate EF and hits at cutoffs
+    compute_weights,    # Compute modality weights
+    calc_modality_metrics,  # Calculate EF, rank score, BEDROC
+    balanced_group_kfold,   # Create balanced group k-fold splits
+    MODALITIES,         # List of modality definitions
+    CUTOFF_PCTS,        # Cutoff percentages [1, 5, 10, 20, 30]
+    OPTIMAL_FIXED_WEIGHTS,  # Pre-computed optimal weights
 )
 ```
 
-Methods:
-- `fit_predict(df)`: Run CWRA analysis
-- `summary()`: Return performance summary
+### Function Signatures
 
-### Utility Functions
+```python
+def murcko_smiles(smiles: str) -> Optional[str]:
+    """Compute Murcko scaffold SMILES from input SMILES."""
 
-- `compute_scaffold(smiles)`: Compute Murcko scaffold
-- `bedroc_from_x(x, alpha, A, N)`: Compute BEDROC score
-- `reciprocal_rank_fusion(ranks, k=60.0)`: RRF aggregation
+def bedroc(x: np.ndarray, alpha: float, A: int, N: int) -> float:
+    """Compute BEDROC (Boltzmann-Enhanced Discrimination of ROC).
+    
+    Args:
+        x: Normalized ranks of actives (0 = best, 1 = worst)
+        alpha: Exponential decay parameter
+        A: Number of actives
+        N: Total number of compounds
+    
+    Returns:
+        BEDROC score in [0, 1]
+    """
+
+def eval_at_cutoffs(score: np.ndarray, active_mask: np.ndarray, 
+                    cutoffs: Dict[str, int], N: int) -> Dict:
+    """Evaluate EF and hits at multiple cutoffs."""
+```
+
+### Command Line Interface
+
+The primary interface is through the command line:
+
+```bash
+python -m cwra --help
+```
 
 ## Contributing
 
