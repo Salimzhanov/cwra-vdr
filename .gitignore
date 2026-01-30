@@ -147,10 +147,3 @@ data/*_old.csv
 # OS files
 .DS_Store
 Thumbs.db
-
-# Large intermediate PDB folders (generated during processing)
-pdb/flexible_complexes/
-pdb/topbottom_structs/
-
-# Large PDF files
-GRAPH.pdf
