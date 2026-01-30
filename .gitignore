@@ -105,9 +105,52 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
-# Output files
-*_table*.csv
-*_ranking.csv
-*_top*.csv
-*_bottom*.csv
+# Project-specific ignores
+# Large data files and archives
+*.zip
+*.tar.gz
+
+# Log files
+logs/
 *.log
+
+# Temporary files
+temp/
+tmp/
+tools/
+
+# Large model weights (users should download separately)
+models/*.pt
+models/*.pth
+models/*.onnx
+
+# Boltz-2 cache and intermediate files
+.boltz/
+boltz_cache/
+results/cwra_final/boltz2_predictions/boltz_results_*/lightning_logs/
+results/cwra_final/boltz2_predictions/boltz_results_*/msa/
+results/cwra_final/boltz2_predictions/boltz_results_*/processed/
+
+# Results that should be regenerated
+results/*_backup*/
+
+# Backup data files
+data/*_backup*.csv
+data/*_old.csv
+
+# IDE settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large intermediate PDB folders (generated during processing)
+pdb/flexible_complexes/
+pdb/topbottom_structs/
+
+# Large PDF files
+GRAPH.pdf

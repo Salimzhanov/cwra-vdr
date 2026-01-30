@@ -11,7 +11,7 @@ Authors:
 - Siamac Fazli (Corresponding Author)
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __author__ = "Abylay Salimzhanov, Ferdinand Molnár, Siamac Fazli"
 __email__ = ""
 
@@ -26,7 +26,6 @@ from .cwra import (
     balanced_group_kfold,
     MODALITIES,
     CUTOFF_PCTS,
-    OPTIMAL_FIXED_WEIGHTS,
 )
 
 __all__ = [
@@ -40,5 +39,4 @@ __all__ = [
     "balanced_group_kfold",
     "MODALITIES",
     "CUTOFF_PCTS",
-    "OPTIMAL_FIXED_WEIGHTS",
 ]

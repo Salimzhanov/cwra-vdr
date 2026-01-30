@@ -5,6 +5,14 @@
 
 A framework for combining multiple molecular docking and binding affinity prediction methods to improve virtual screening performance for Vitamin D Receptor (VDR) ligands. Supports 11 modalities including docking scores, deep learning-based affinity predictions, and similarity-based methods.
 
+**Key Results:** CWRA achieves **EF@1% = 24.96** on a dataset of 16,059 compounds (366 actives), placing 91 actives in the top 1% and calcitriol (reference ligand) at rank 29.
+
+## Graphical Abstract
+
+<p align="center">
+  <img src="docs/graphical_abstract.png" alt="CWRA Graphical Abstract" width="100%">
+</p>
+
 ## Table of Contents
 
 - [Installation](#installation)
@@ -13,7 +21,7 @@ A framework for combining multiple molecular docking and binding affinity predic
 - [Usage](#usage)
 - [Modalities](#modalities)
 - [Performance](#performance)
-- [API Reference](#api-reference)
+- [Structure Prediction Pipeline](#structure-prediction-pipeline)
 - [Contributing](#contributing)
 - [Citation](#citation)
 - [License](#license)
@@ -25,95 +33,90 @@ A framework for combining multiple molecular docking and binding affinity predic
 ```bash
 git clone https://github.com/Salimzhanov/cwra-vdr.git
 cd cwra-vdr
-pip install -e ".[dev]"
+pip install -e .
 ```
 
 ### Dependencies
 
+Core dependencies:
 - numpy>=1.21.0
 - pandas>=1.3.0
 - scipy>=1.7.0
 - scikit-learn>=1.0.0
 - rdkit>=2021.03.1
-- joblib>=1.0.0
+- matplotlib>=3.5.0
+
+Optional (for structure prediction):
+- AutoDock Vina
+- Boltz-2 (for AI structure prediction)
+- meeko>=0.7.1 (for PDBQT conversion)
 
 ## Quick Start
 
 ### Command Line
 
 ```bash
-# Recommended: Use fixed optimal weights (fast, production-ready)
-cwra --csv data/labeled_raw_modalities.csv --fixed_weights --output_prefix results
+# Run CWRA with fair weight optimization (recommended)
+python cwra_final.py --input data/labeled_raw_modalities.csv --output results/cwra_final --method fair
 
-# Quick CV test
-cwra --csv data/labeled_raw_modalities.csv --outer_repeats 1 --outer_splits 3 --focus early
-
-# Full CV run (slower, for hyperparameter tuning)
-cwra --csv data/labeled_raw_modalities.csv --outer_repeats 5 --outer_splits 10 --focus early --output_prefix results
+# Run with specific weight constraints
+python cwra_final.py --input data/labeled_raw_modalities.csv --method fair --min-weight 0.03 --max-weight 0.25
 ```
 
 ### Python API
 
 ```python
-import subprocess
-import sys
-
-# Run CWRA from Python using subprocess
-result = subprocess.run([
-    sys.executable, "-m", "cwra",
-    "--csv", "data/labeled_raw_modalities.csv",
-    "--fixed_weights",
-    "--output_prefix", "results"
-], capture_output=True, text=True)
-print(result.stdout)
-```
-
-Or import and use the core functions directly:
-
-```python
 import pandas as pd
-import numpy as np
-from cwra import (
-    murcko_smiles, 
-    bedroc, 
-    compute_weights,
-    calc_modality_metrics,
-    eval_at_cutoffs,
-    MODALITIES,
-    OPTIMAL_FIXED_WEIGHTS
-)
+from cwra_final import CWRAConfig, CWRAOptimizer
 
-# Load your data
-df = pd.read_csv('your_data.csv')
+# Load data
+df = pd.read_csv('data/labeled_raw_modalities.csv')
 
-# Use optimal fixed weights for scoring
-mod_cols = [m[0] for m in MODALITIES]
-weights = np.array([OPTIMAL_FIXED_WEIGHTS[col] for col in mod_cols])
-weights = weights / weights.sum()
+# Configure and run CWRA
+config = CWRAConfig(method='fair', min_weight=0.03, max_weight=0.25)
+optimizer = CWRAOptimizer(config)
+results = optimizer.fit(df)
 
-# ... compute ranks and aggregate with weights
+# Get rankings
+rankings = results['rankings']
+print(f"Top compound: {rankings.iloc[0]['smiles']}")
 ```
 
 ## Project Structure
 
 ```
 cwra-vdr/
-├── cwra/
+├── cwra_final.py                  # Main CWRA algorithm
+├── cwra/                          # Core package (legacy API)
 │   ├── __init__.py
+│   ├── __main__.py
 │   └── cwra.py
-├── docs/
-├── .github/
-│   ├── workflows/
-│   │   └── ci.yml
-│   ├── ISSUE_TEMPLATE/
-│   └── PULL_REQUEST_TEMPLATE/
+├── scripts/                       # Utility scripts
+│   ├── generate_g_group_pdbs.py   # Generate docked PDB structures
+│   ├── run_boltz2_predictions.py  # Boltz-2 structure predictions
+│   ├── compute_*.py               # Modality computation scripts
+│   └── run_*.py                   # Inference scripts
+├── data/
+│   ├── labeled_raw_modalities.csv # Main dataset with all modalities
+│   └── composed_modalities.csv    # Extended dataset
+├── results/
+│   └── cwra_final/                # Final results
+│       ├── cwra_final_rankings.csv    # Complete rankings (16,059 compounds)
+│       ├── g_group_pdbs_docked/       # Docked PDB structures
+│       └── boltz2_predictions/        # Boltz-2 AI structure predictions
+├── pdb/                           # VDR structure files
+│   ├── 1DB1.pdb                   # VDR crystal structure
+│   └── 1DB1.pdbqt                 # AutoDock format
+├── models/                        # Pre-trained model weights
+├── DrugBAN/                       # DrugBAN submodule
+├── MolTrans/                      # MolTrans submodule
+├── TankBind/                      # TankBind submodule
 ├── pyproject.toml
-├── setup.py
 ├── requirements.txt
 ├── README.md
 ├── CONTRIBUTING.md
 ├── CHANGELOG.md
-└── LICENSE
+└── LICENSE.txt
 ```
 
 ## Modalities
@@ -134,125 +137,133 @@ cwra-vdr/
 
 ## Performance
 
-Results from fixed optimal weights evaluation on 366 actives (initial_370 + calcitriol). 
+Results from CWRA fair-weight optimization on 16,059 compounds (366 actives from initial_370 + calcitriol).
 
-### Method Comparison
+### Enrichment Metrics
 
-| Category | Method | EF@1% | EF@5% | EF@10% | Hits@10% | Hits@20% |
-|----------|--------|-------|-------|--------|----------|----------|
-| Single | Uni-Mol similarity ↑ | 1.80 | 2.00 | 1.55 | 57.00 | 105.00 |
-| Single | Boltz-2 confidence ↑ | 1.03 | 1.30 | 1.52 | 56.00 | 94.00 |
-| Single | Boltz-2 affinity ↓ | 0.77 | 1.40 | 1.44 | 53.00 | 99.00 |
-| Single | MolTrans ↓ | 1.29 | 1.30 | 1.11 | 41.00 | 70.00 |
-| Single | DrugBAN ↓ | 0.77 | 1.13 | 1.03 | 38.00 | 66.00 |
-| Single | MLT-LE pKd ↑ | 1.03 | 1.13 | 0.92 | 34.00 | 68.00 |
-| Single | GraphDTA-IC50 ↑ | 0.77 | 1.08 | 0.87 | 32.00 | 51.00 |
-| Single | GraphDTA-Ki ↑ | 0.77 | 0.54 | 0.71 | 26.00 | 56.00 |
-| Single | GraphDTA-Kd ↑ | 0.51 | 0.43 | 0.68 | 25.00 | 61.00 |
-| Single | TankBind ↓ | 0.51 | 0.43 | 0.54 | 20.00 | 58.00 |
-| Single | AutoDock Vina ↓ | 0.00 | 0.49 | 0.49 | 18.00 | 49.00 |
-| Fusion | Equal-weight | 0.77 | 1.19 | 1.03 | 38.00 | 63.00 |
-| Fusion | **CWRA-early** | **2.06** | **1.84** | **1.63** | **60.00** | **102.00** |
-| Baseline | Random | 1.00 | 1.00 | 1.00 | 36.78 | 73.34 |
+| Metric | Value | Description |
+|--------|-------|-------------|
+| **EF@1%** | **24.96** | 91 actives in top 160 compounds |
+| **EF@5%** | **13.57** | 248 actives in top 802 compounds |
+| **EF@10%** | **9.68** | 354 actives in top 1,605 compounds |
+| **Hits@20%** | 362/366 | 98.9% of actives recovered |
+| **Hits@30%** | 366/366 | 100% recovery |
+| **Calcitriol Rank** | 29 | Reference ligand in top 0.2% |
 
-**Key Results:**
-- CWRA outperforms Equal-weight fusion by **168%** at EF@1% and **58%** at EF@10%
-- CWRA outperforms the best individual modality (Uni-Mol similarity) by **14%** at EF@1% and **5%** at EF@10%
-- CWRA consistently outperforms random baseline across all metrics
+### Top 50 Compound Composition
+
+| Source | Count | Description |
+|--------|-------|-------------|
+| initial_370 | 31 | Known VDR binders |
+| G2 | 16 | 2-model consensus candidates |
+| G3 | 2 | 3-model consensus candidates |
+| calcitriol | 1 | Reference ligand (rank 29) |
+
+### Generator Performance in Top 100
+
+The CWRA ranking successfully prioritizes high-quality generated compounds:
+- **61** known actives (reference)
+- **17** from gmdldr_reinvent (G2)
+- **8** from transmol-reinvent-gmdldr (G3)
+- **7** from reinvent_transmol (G2)
+- **6** from gmdldr_transmol (G2)
 
 ## Usage
 
-### Command Line Arguments
+### Command Line Arguments (cwra_final.py)
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--csv` | `data/labeled_raw_modalities.csv` | Input CSV with modalities + SMILES + source |
-| `--outer_splits` | `5` | Number of outer CV folds |
-| `--outer_repeats` | `3` | Number of outer CV repeats |
-| `--inner_splits` | `3` | Number of inner CV folds |
+| `--input` | required | Input CSV with modalities + SMILES + source |
+| `--output` | `results/` | Output directory for results |
+| `--method` | `fair` | Optimization: 'fair', 'unconstrained', 'entropy', 'topk' |
+| `--min-weight` | `0.03` | Minimum weight per modality (fair method) |
+| `--max-weight` | `0.25` | Maximum weight per modality (fair method) |
+| `--de-maxiter` | `500` | Differential evolution iterations |
 | `--seed` | `42` | Random seed |
-| `--risk_beta` | `0.3` | Risk aversion parameter (mean - beta*std) |
-| `--focus` | `early` | Optimization focus: 'early', 'balanced', 'standard', 'comprehensive' |
-| `--grid_mode` | `optimal` | Grid size: 'narrow', 'optimal', 'default', 'wide', 'extended' |
-| `--output_prefix` | `results` | Prefix for output files |
-| `--top_n` | `25` | Number of top/bottom structures to extract |
-| `--n_jobs` | `-1` | Parallel jobs (-1 for all cores) |
-| `--fixed_weights` | `False` | Use optimal fixed weights instead of CV-learned weights |
 
 ### Input Format
 
 The input CSV requires:
 - `smiles`: SMILES strings
-- `source`: Source identifier (e.g., 'initial_370' for actives)
+- `source`: Source identifier (e.g., 'initial_370' for actives, 'G1'/'G2'/'G3' for generated)
+- `generator`: Generator name (e.g., 'reinvent', 'gmdldr', 'transmol')
 - Modality columns: `graphdta_kd`, `graphdta_ki`, `graphdta_ic50`, `mltle_pKd`, `vina_score`, `boltz_affinity`, `boltz_confidence`, `unimol_similarity`, `tankbind_affinity`, `drugban_affinity`, `moltrans_affinity`
 
 ### Output Files
 
-- `{prefix}_table5_weights.csv`: Modality weights and individual performance
-- `{prefix}_table6_performance.csv`: Performance comparison across methods
-- `{prefix}_full_ranking.csv`: Complete ranking of all compounds
-- `{prefix}_top{top_n}_G.csv`: Top generated compounds by CWRA rank
-- `{prefix}_bottom{top_n}_G.csv`: Bottom generated compounds by CWRA rank
-- `{prefix}_hyperparameters.csv`: Selected hyperparameters
-- `{prefix}_latex_tables.tex`: LaTeX formatted tables for manuscript
+- `cwra_final_rankings.csv`: Complete ranking with CWRA scores (16,059 compounds)
+- `g_group_pdbs_docked/`: Docked 3D structures for top/bottom G-group compounds
+- `boltz2_predictions/`: AI-predicted protein-ligand complex structures
+
+## Structure Prediction Pipeline
+
+The project includes a complete pipeline for generating 3D structures of top-ranked compounds:
+
+### 1. Generate Docked PDB Structures
+
+```bash
+python scripts/generate_g_group_pdbs.py \
+    --input results/cwra_final/cwra_final_rankings.csv \
+    --output results/cwra_final/g_group_pdbs_docked \
+    --receptor pdb/1DB1.pdb \
+    --top-n 5 --bottom-n 5 \
+    --exhaustiveness 8
+```
+
+This generates AutoDock Vina docked structures for top/bottom compounds across G-groups (G1, G2, G3).
+
+### 2. Run Boltz-2 AI Structure Predictions
+
+```bash
+python scripts/run_boltz2_predictions.py \
+    --manifest results/cwra_final/g_group_pdbs_docked/manifest.csv \
+    --output results/cwra_final/boltz2_predictions \
+    --accelerator gpu \
+    --sampling-steps 200 \
+    --diffusion-samples 1
+```
+
+Features:
+- Uses VDR ligand-binding domain sequence (residues 120-423)
+- Generates protein-ligand complex structures via diffusion
+- Outputs PDB files with confidence scores (pLDDT, PAE, PDE)
+- Uses ColabFold MSA server for sequence alignment
+
+### Output Structure
+
+```
+results/cwra_final/
+├── cwra_final_rankings.csv        # CWRA rankings for all compounds
+├── g_group_pdbs_docked/           # Docked structures
+│   ├── manifest.csv               # Compound metadata
+│   ├── top_G1_rank00137_*.pdb
+│   └── ...
+└── boltz2_predictions/            # Boltz-2 predictions
+    ├── boltz2_results.csv         # Summary with confidence scores
+    ├── boltz_results_*/           # Per-compound results
+    │   └── predictions/
+    │       └── *_model_0.pdb      # Predicted structure
+    └── inputs/                    # YAML input files
+```
+
+## Reproducing publication figures
+
+Regenerate `results/publication_figures/fig1..fig7_*.pdf` (and PNGs) from an existing CWRA run:
+
+```bash
+python scripts/generate_publication_figures.py --prefix results/extended --outdir results/publication_figures
+```
+
+Notes:
+- The script will reuse `results/plip_analysis.(pdf|png)` if present.
+- To regenerate from a different run, pass its prefix (e.g. `results/extended_cv`).
 
 ## Metrics
 
 - **EF@k%**: Enrichment Factor at k% of database
 - **Hits@k**: Number of actives in top k compounds
 - **BEDROC**: Boltzmann-Enhanced Discrimination of ROC
-- **Mean Rank**: Average rank of active compounds
-
-## API Reference
-
-### Core Functions
-
-```python
-from cwra import (
-    murcko_smiles,      # Compute Murcko scaffold from SMILES
-    bedroc,             # Compute BEDROC score
-    shrink_factors,     # Compute shrinkage factors for correlation
-    eval_at_cutoffs,    # Evaluate EF and hits at cutoffs
-    compute_weights,    # Compute modality weights
-    calc_modality_metrics,  # Calculate EF, rank score, BEDROC
-    balanced_group_kfold,   # Create balanced group k-fold splits
-    MODALITIES,         # List of modality definitions
-    CUTOFF_PCTS,        # Cutoff percentages [1, 5, 10, 20, 30]
-    OPTIMAL_FIXED_WEIGHTS,  # Pre-computed optimal weights
-)
-```
-
-### Function Signatures
-
-```python
-def murcko_smiles(smiles: str) -> Optional[str]:
-    """Compute Murcko scaffold SMILES from input SMILES."""
-
-def bedroc(x: np.ndarray, alpha: float, A: int, N: int) -> float:
-    """Compute BEDROC (Boltzmann-Enhanced Discrimination of ROC).
-    
-    Args:
-        x: Normalized ranks of actives (0 = best, 1 = worst)
-        alpha: Exponential decay parameter
-        A: Number of actives
-        N: Total number of compounds
-    
-    Returns:
-        BEDROC score in [0, 1]
-    """
-
-def eval_at_cutoffs(score: np.ndarray, active_mask: np.ndarray, 
-                    cutoffs: Dict[str, int], N: int) -> Dict:
-    """Evaluate EF and hits at multiple cutoffs."""
-```
-
-### Command Line Interface
-
-The primary interface is through the command line:
-
-```bash
-python -m cwra --help
-```
 
 ## Contributing
 
@@ -267,15 +278,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## Citation
 
 ```bibtex
-@software{salimzhanov2025cwra,
+@software{salimzhanov2026cwra,
   title={CWRA: Calibrated Weighted Rank Aggregation for VDR Virtual Screening},
   author={Salimzhanov, Abylay and Moln{\'a}r, Ferdinand and Fazli, Siamac},
-  year={2025},
+  year={2026},
   url={https://github.com/Salimzhanov/cwra-vdr},
-  version={1.1.0}
+  version={1.3.0}
 }
 ```
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+MIT License — see [LICENSE](LICENSE.txt).
