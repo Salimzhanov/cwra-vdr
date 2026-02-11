@@ -1,0 +1,2 @@
+n_total,n_actives_full,n_actives_train,n_actives_test,n_inactives,train_frac,split_seed
+16059,366,256,110,15693,0.7,42
