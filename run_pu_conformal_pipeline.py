@@ -163,46 +163,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--neg-pos-ratio", type=int, default=10)
     parser.add_argument("--bottom-q", type=float, default=0.2)
     parser.add_argument("--sim-max", type=float, default=0.35)
-    parser.add_argument(
-        "--include-boltz-confidence",
-        action="store_true",
-        help="Include boltz_confidence modality in Step A reliable-negative scoring.",
-    )
-    parser.add_argument(
-        "--include-unimol",
-        action="store_true",
-        help="Include unimol_similarity modality in Step A reliable-negative scoring.",
-    )
     parser.add_argument("--calib-frac", type=float, default=0.3)
     parser.add_argument("--clip", type=float, default=20)
     parser.add_argument("--mode", choices=["alpha", "bh"], default="bh")
     parser.add_argument("--q", type=float, default=0.1)
     parser.add_argument("--alpha", type=float, default=0.1)
-    parser.add_argument(
-        "--select-mode",
-        choices=["bh", "pval_cutoff"],
-        default="bh",
-        help="Selection mode for Step E: bh or pval_cutoff.",
-    )
+    parser.add_argument("--select-mode",vchoices=["bh", "pval_cutoff"], default="bh", help="Selection mode for Step E: bh or pval_cutoff.")
     parser.add_argument("--pval-cutoff", type=float, default=None)
-    parser.add_argument(
-        "--calib-negatives",
-        choices=["rn_only", "unlabeled_random"],
-        default="rn_only",
-        help="Calibration negatives source for Step C.",
-    )
-    parser.add_argument(
-        "--calib-neg-n",
-        type=int,
-        default=0,
-        help="Number of calibration negatives for unlabeled_random (0=auto).",
-    )
-    parser.add_argument(
-        "--calib-neg-sim-max",
-        type=float,
-        default=None,
-        help="Similarity cutoff for unlabeled calibration negatives (default: --sim-max).",
-    )
+    parser.add_argument("--calib-negatives", choices=["rn_only", "unlabeled_random"], default="rn_only", help="Calibration negatives source for Step C.")
+    parser.add_argument("--calib-neg-n", type=int, default=0, help="Number of calibration negatives for unlabeled_random (0=auto).")
+    parser.add_argument("--calib-neg-sim-max", type=float, default=None, help="Similarity cutoff for unlabeled calibration negatives (default: --sim-max).")
     parser.add_argument(
         "--score-source",
         choices=["cwra", "meta_lr", "meta_gbt"],
@@ -237,7 +207,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--max-mw",
         type=float,
-        default=800.0,
+        default=600.0,
         help="Drug-likeness pre-filter: max molecular weight for unlabeled compounds. "
              "Set to 0 to disable. Default 800 (match CWRA CV if using cwra scoring).",
     )
@@ -275,7 +245,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     logger.info("Output root: %s", outdir)
     logger.info(
         "Params: seed=%d neg_pos_ratio=%d bottom_q=%.3f sim_max=%.3f "
-        "include_boltz_confidence=%s include_unimol=%s "
         "calib_frac=%.3f clip=%.1f mode=%s q=%.3f alpha=%.3f "
         "select_mode=%s pval_cutoff=%s calib_negatives=%s calib_neg_n=%d calib_neg_sim_max=%s "
         "score_source=%s cwra_weights_csv=%s cwra_norm=%s top_k=%d pval_type=%s "
@@ -284,8 +253,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         args.neg_pos_ratio,
         args.bottom_q,
         args.sim_max,
-        str(args.include_boltz_confidence),
-        str(args.include_unimol),
         args.calib_frac,
         args.clip,
         args.mode,
@@ -321,11 +288,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             str(args.sim_max),
             "--seed",
             str(args.seed),
+            "--include-boltz-confidence",
+            "--include-unimol",
         ]
-        if args.include_boltz_confidence:
-            step_a_args += ["--include-boltz-confidence"]
-        if args.include_unimol:
-            step_a_args += ["--include-unimol"]
         stepA_main(step_a_args)
     except Exception as exc:
         logger.error("Step A failed: %s", exc)

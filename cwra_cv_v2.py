@@ -1568,17 +1568,18 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         prefix = config.output_prefix
+        cv_prefix = prefix if prefix.endswith('_cv') else f'{prefix}_cv'
 
-        perf_df.to_csv(output_dir / f'{prefix}_cv_folds_performance.csv', index=False)
-        weights_df.to_csv(output_dir / f'{prefix}_cv_folds_weights.csv', index=False)
-        mean_weights_df.to_csv(output_dir / f'{prefix}_cv_mean_weights.csv', index=False)
-        baseline_df.to_csv(output_dir / f'{prefix}_cv_folds_baselines.csv', index=False)
-        fold_info_df.to_csv(output_dir / f'{prefix}_cv_folds_info.csv', index=False)
-        summary_df.to_csv(output_dir / f'{prefix}_cv_summary.csv', index=False)
-        indiv_df.to_csv(output_dir / f'{prefix}_cv_folds_individual.csv', index=False)
-        method_df.to_csv(output_dir / f'{prefix}_cv_folds_methods.csv', index=False)
+        perf_df.to_csv(output_dir / f'{cv_prefix}_folds_performance.csv', index=False)
+        weights_df.to_csv(output_dir / f'{cv_prefix}_folds_weights.csv', index=False)
+        mean_weights_df.to_csv(output_dir / f'{cv_prefix}_mean_weights.csv', index=False)
+        baseline_df.to_csv(output_dir / f'{cv_prefix}_folds_baselines.csv', index=False)
+        fold_info_df.to_csv(output_dir / f'{cv_prefix}_folds_info.csv', index=False)
+        summary_df.to_csv(output_dir / f'{cv_prefix}_summary.csv', index=False)
+        indiv_df.to_csv(output_dir / f'{cv_prefix}_folds_individual.csv', index=False)
+        method_df.to_csv(output_dir / f'{cv_prefix}_folds_methods.csv', index=False)
         if not extra_df.empty:  # CHANGE 8
-            extra_df.to_csv(output_dir / f'{prefix}_cv_folds_extra_metrics.csv', index=False)
+            extra_df.to_csv(output_dir / f'{cv_prefix}_folds_extra_metrics.csv', index=False)
         if filter_report is not None:  # CHANGE 2
             pd.DataFrame([filter_report]).to_csv(
                 output_dir / f'{prefix}_filter_report.csv', index=False
@@ -1597,7 +1598,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         if verbose:
             print(f"\nResults saved to {output_dir}/")
             print(f"Paper table: {output_dir / f'{prefix}_paper_table.csv'}")
-            print(f"Mean weights: {output_dir / f'{prefix}_cv_mean_weights.csv'}")
+            print(f"Mean weights: {output_dir / f'{cv_prefix}_mean_weights.csv'}")
 
     if verbose:
         elapsed = time.time() - t0
@@ -2143,4 +2144,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

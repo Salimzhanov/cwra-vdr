@@ -1,0 +1,22 @@
+{
+  "N": 16059,
+  "n_pos": 366,
+  "n_rn": 2727,
+  "bottom_q": 0.2,
+  "sim_max": 0.35,
+  "neg_pos_ratio": 10,
+  "seed": 42,
+  "used_modality_keys": [
+    "graphdta_kd",
+    "graphdta_ki",
+    "graphdta_ic50",
+    "mltle_pKd",
+    "vina_score",
+    "boltz_affinity",
+    "tankbind_affinity",
+    "drugban_affinity",
+    "moltrans_affinity",
+    "boltz_confidence",
+    "unimol_similarity"
+  ]
+}
