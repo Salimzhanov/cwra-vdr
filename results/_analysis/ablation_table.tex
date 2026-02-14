@@ -1,0 +1,31 @@
+\begin{table*}[htbp]
+\centering
+\caption{Ablation study: effect of individual design choices on CWRA cross-validated enrichment.}
+\label{tab:ablation}
+\small
+\begin{tabular}{ll rrrr rr}
+\toprule
+ID & Description & EF@0.5\% & EF@1\% & EF@5\% & EF@10\% & BEDROC$_{20}$ & Gap\% \\
+\midrule
+  \textbf{V00} & \textbf{Best config (reference)} & 24.72 & 22.52 & 13.01 & 7.76 & 0.537 & — \\
+\addlinespace
+  V01 & Rank normalization & 21.42 & 16.47 & 7.54 & 4.75 & 0.332 & — \\
+  V02 & Robust normalization & 24.16 & 22.52 & 12.13 & 9.18 & 0.542 & — \\
+\addlinespace
+  V03 & Default EF objective (no BEDROC) & 21.42 & 20.60 & 12.08 & 8.66 & 0.527 & — \\
+  V04 & Sharp EF objective (no BEDROC) & 17.56 & 19.77 & 10.60 & 7.29 & 0.469 & — \\
+  V05 & BEDROC alpha=160 (top ~0.6%) & 25.81 & 22.79 & 12.90 & 7.21 & 0.521 & — \\
+  V06 & BEDROC alpha=20 (standard, top ~5%) & 23.07 & 21.42 & 13.34 & 9.59 & 0.569 & — \\
+\addlinespace
+  V07 & No drug-likeness filter & 28.00 & 23.60 & 13.35 & 8.61 & 0.574 & — \\
+  V08 & Stricter filter (MW<500) & 16.65 & 18.99 & 12.75 & 9.16 & 0.552 & — \\
+\addlinespace
+  V09 & Drop 4 dead modalities (manual) & 25.80 & 23.88 & 13.83 & 9.40 & 0.592 & — \\
+  V10 & Auto-prune at 3% threshold & 24.72 & 22.52 & 13.01 & 7.76 & 0.537 & — \\
+\addlinespace
+  V12 & Strict CV (per-fold normalization) & 24.72 & 22.52 & 13.01 & 7.87 & 0.542 & — \\
+  V13 & Multi-seed DE (3 seeds) & 25.26 & 22.79 & 13.06 & 8.42 & 0.551 & — \\
+  V14 & Different seed (seed=7) & 24.69 & 22.24 & 13.06 & 8.31 & 0.551 & — \\
+\bottomrule
+\end{tabular}
+\end{table*}

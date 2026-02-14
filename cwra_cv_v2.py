@@ -22,11 +22,13 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.optimize import differential_evolution
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 import argparse
 import warnings
+import sys
 import time
 
 warnings.filterwarnings('ignore')
@@ -52,6 +54,25 @@ def _print_table(title: str, headers: List[str], rows: List[List[str]]) -> None:
     print("-" * len(header_line))
     for row in rows:
         print("  ".join(f"{str(row[i]):<{widths[i]}}" for i in range(len(headers))))
+
+
+class TeeStream:
+    """Write stream output to multiple destinations (console + log file)."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+    def isatty(self):
+        return any(getattr(stream, "isatty", lambda: False)() for stream in self.streams)
 
 
 def project_to_capped_simplex(  # CHANGE 7
@@ -1274,6 +1295,14 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         w_safe = np.clip(w, 1e-10, 1)
         return float(-np.sum(w_safe * np.log(w_safe)) / np.log(len(w)))
 
+    def _mean_rank(scores: np.ndarray, active_mask: np.ndarray) -> float:
+        """Mean rank position of actives (1 = best rank)."""
+        n_act = int(np.asarray(active_mask, dtype=bool).sum())
+        if n_act == 0:
+            return float("nan")
+        ranks = stats.rankdata(-np.asarray(scores, dtype=float), method='average')
+        return float(np.mean(ranks[np.asarray(active_mask, dtype=bool)]))
+
     if verbose:
         print("=" * 80)
         print(f"CWRA K-FOLD CROSS-VALIDATION (k={n_folds})")
@@ -1392,21 +1421,25 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 print(f"  Running {method_name} optimization...")
             optimizer = OPTIMIZERS[method_name]
             weights = optimizer(X, train_active_mask, config)
+            scores = X @ weights
 
             perf_train = evaluate_weights(weights, X, train_active_mask)
             perf_test = evaluate_weights(weights, X, test_active_mask)
             perf_full = evaluate_weights(weights, X, full_active_mask)
+            mean_rank_test = _mean_rank(scores, test_active_mask)
 
             all_methods[method_name] = {
                 'weights': weights,
                 'perf_train': perf_train,
                 'perf_test': perf_test,
                 'perf_full': perf_full,
+                'mean_rank_test': mean_rank_test,
             }
 
             method_row = {  # CHANGE 4
                 'fold': fold_idx,
                 'method': method_name,
+                'test_mean_rank': mean_rank_test,
             }
             for c in CUTOFFS:  # CHANGE 4
                 method_row[f'test_ef_{c}'] = perf_test[c]['ef']
@@ -1528,6 +1561,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                     row['test_auroc'] = float('nan')
                     row['test_auprc'] = float('nan')
                     row['test_bedroc'] = float('nan')
+            row['test_mean_rank'] = _mean_rank(X @ be['weights'], test_active_mask)
             indiv_rows.append(row)
 
     perf_df = pd.DataFrame(perf_rows)
@@ -1563,6 +1597,35 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         )
         .sort_values('weight', ascending=False)
     )
+    mean_rank_indiv_df = (
+        indiv_df.groupby('modality', as_index=False)
+        .agg(
+            test_mean_rank_mean=('test_mean_rank', 'mean'),
+            test_mean_rank_std=('test_mean_rank', 'std'),
+        )
+    )
+    chosen_mean_rank_df = (
+        method_df[method_df['method'] == chosen]
+        .groupby('method', as_index=False)
+        .agg(
+            test_mean_rank_mean=('test_mean_rank', 'mean'),
+            test_mean_rank_std=('test_mean_rank', 'std'),
+        )
+    )
+    cwra_mean_rank_df = pd.DataFrame(
+        {
+            'method': ['CWRA'],
+            'test_mean_rank_mean': [float(chosen_mean_rank_df['test_mean_rank_mean'].iloc[0]) if not chosen_mean_rank_df.empty else float('nan')],
+            'test_mean_rank_std': [float(chosen_mean_rank_df['test_mean_rank_std'].iloc[0]) if not chosen_mean_rank_df.empty else float('nan')],
+        }
+    )
+    mean_rank_summary_df = pd.concat(
+        [
+            mean_rank_indiv_df.rename(columns={'modality': 'method'}),
+            cwra_mean_rank_df,
+        ],
+        ignore_index=True,
+    )
 
     if output_dir is not None:
         output_dir = Path(output_dir)
@@ -1578,6 +1641,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         summary_df.to_csv(output_dir / f'{cv_prefix}_summary.csv', index=False)
         indiv_df.to_csv(output_dir / f'{cv_prefix}_folds_individual.csv', index=False)
         method_df.to_csv(output_dir / f'{cv_prefix}_folds_methods.csv', index=False)
+        mean_rank_summary_df.to_csv(output_dir / f'{cv_prefix}_mean_rank_summary.csv', index=False)
         if not extra_df.empty:  # CHANGE 8
             extra_df.to_csv(output_dir / f'{cv_prefix}_folds_extra_metrics.csv', index=False)
         if filter_report is not None:  # CHANGE 2
@@ -1599,6 +1663,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
             print(f"\nResults saved to {output_dir}/")
             print(f"Paper table: {output_dir / f'{prefix}_paper_table.csv'}")
             print(f"Mean weights: {output_dir / f'{cv_prefix}_mean_weights.csv'}")
+            print(f"Mean rank summary: {output_dir / f'{cv_prefix}_mean_rank_summary.csv'}")
 
     if verbose:
         elapsed = time.time() - t0
@@ -2033,16 +2098,15 @@ def main():
         help='Input CSV file (default: data/composed_modalities_with_rdkit.csv)',
     )
     parser.add_argument('--output', '-o', default='cwra_cv_results', help='Output directory')
-    parser.add_argument('--method', '-m', default='fair', choices=['unconstrained', 'fair', 'entropy'],
-                        help='Optimization method')
+    parser.add_argument('--method', '-m', default='fair', choices=['unconstrained', 'fair', 'entropy'], help='Optimization method')
     parser.add_argument('--min-weight', type=float, default=0.03)
     parser.add_argument('--max-weight', type=float, default=0.25)
-    parser.add_argument('--norm', default='minmax', choices=['minmax', 'rank', 'robust'])  # CHANGE 1
+    parser.add_argument('--norm', default='minmax', choices=['minmax', 'rank', 'robust']) 
     parser.add_argument('--objective', default='default', choices=['default', 'sharp', 'top_heavy', 'balanced', 'custom'])
-    parser.add_argument('--bedroc', action='store_true', default=False)  # CHANGE 4
-    parser.add_argument('--bedroc-alpha', type=float, default=80.0)  # CHANGE 4
-    parser.add_argument('--max-mw', type=float, default=600)  # CHANGE 2
-    parser.add_argument('--max-rotb', type=int, default=15)  # CHANGE 2
+    parser.add_argument('--bedroc', action='store_true', default=False) 
+    parser.add_argument('--bedroc-alpha', type=float, default=80.0)
+    parser.add_argument('--max-mw', type=float, default=600) 
+    parser.add_argument('--max-rotb', type=int, default=15)
     parser.add_argument('--smiles-col', type=str, default='smiles')  # CHANGE 2
     parser.add_argument('--drop-modalities', nargs='+', default=[])  # CHANGE 5
     parser.add_argument('--auto-prune', type=float, default=0.0)  # CHANGE 5
@@ -2054,7 +2118,7 @@ def main():
     parser.add_argument('--extra-metrics', dest='report_extra_metrics', action='store_true')  # CHANGE 8
     parser.add_argument('--no-extra-metrics', dest='report_extra_metrics', action='store_false')  # CHANGE 8
     parser.set_defaults(report_extra_metrics=True)  # CHANGE 8
-    parser.add_argument('--report-bedroc-alpha', type=float, default=20.0)  # CHANGE 8
+    parser.add_argument('--report-bedroc-alpha', type=float, default=80.0)  # CHANGE 8
     parser.add_argument('--self-test', action='store_true', default=False)  # CHANGE 7
     parser.add_argument('--train-frac', type=float, default=0.7,
                         help='Fraction of actives for training (default: 0.7)')
@@ -2089,6 +2153,12 @@ def main():
         print("SELF-TESTS PASSED")
         return
 
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = output_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = logs_dir / f"cwra_cv_run_{time.strftime('%Y%m%d_%H%M%S')}.log"
+
     config = CWRAConfig(
         method=args.method,
         min_weight=args.min_weight,
@@ -2112,34 +2182,36 @@ def main():
         train_frac=args.train_frac,
     )
 
-    df = pd.read_csv(args.input)
-    print(f"Loaded {len(df):,} compounds")
+    with open(log_path, 'w', encoding='utf-8') as log_f:
+        tee_out = TeeStream(sys.stdout, log_f)
+        tee_err = TeeStream(sys.stderr, log_f)
+        with redirect_stdout(tee_out), redirect_stderr(tee_err):
+            print(f"Logging console output to {log_path}")
+            df = pd.read_csv(args.input)
+            print(f"Loaded {len(df):,} compounds")
 
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
+            if args.cv_folds and args.cv_folds > 1:
+                run_cross_validation(df, config, args.cv_folds, output_dir=output_dir, verbose=True)
 
-    if args.cv_folds and args.cv_folds > 1:
-        run_cross_validation(df, config, args.cv_folds, output_dir=output_dir, verbose=True)
+                if args.latex:
+                    prefix = config.output_prefix
+                    paper_csv = output_dir / f'{prefix}_paper_table.csv'
+                    if paper_csv.exists():
+                        paper_df = pd.read_csv(paper_csv)
+                        latex_src = paper_table_to_latex(paper_df, show_std=not args.no_std)
+                        latex_path = output_dir / f'{prefix}_table.tex'
+                        with open(latex_path, 'w', encoding='utf-8') as f:
+                            f.write(latex_src)
+                        print(f"LaTeX table written to {latex_path}")
+            else:
+                cwra = CWRATrainTest(config)
+                cwra.fit(df)
 
-        if args.latex:
-            prefix = config.output_prefix
-            paper_csv = output_dir / f'{prefix}_paper_table.csv'
-            if paper_csv.exists():
-                paper_df = pd.read_csv(paper_csv)
-                latex_src = paper_table_to_latex(paper_df, show_std=not args.no_std)
-                latex_path = output_dir / f'{prefix}_table.tex'
-                with open(latex_path, 'w', encoding='utf-8') as f:
-                    f.write(latex_src)
-                print(f"LaTeX table written to {latex_path}")
-    else:
-        cwra = CWRATrainTest(config)
-        cwra.fit(df)
+                df_ranked = cwra.transform(df)
+                df_ranked.to_csv(output_dir / f'{config.output_prefix}_rankings.csv', index=False)
+                cwra.save_results(output_dir)
 
-        df_ranked = cwra.transform(df)
-        df_ranked.to_csv(output_dir / f'{config.output_prefix}_rankings.csv', index=False)
-        cwra.save_results(output_dir)
-
-        print("\nDone!")
+                print("\nDone!")
 
 
 if __name__ == '__main__':

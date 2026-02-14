@@ -1,0 +1,114 @@
+[
+  {
+    "tag": "V00",
+    "label": "Best config (reference)",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 208.9
+  },
+  {
+    "tag": "V01",
+    "label": "Rank normalization",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 357.4
+  },
+  {
+    "tag": "V02",
+    "label": "Robust normalization",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 252.4
+  },
+  {
+    "tag": "V03",
+    "label": "Default EF objective (no BEDROC)",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 44.6
+  },
+  {
+    "tag": "V04",
+    "label": "Sharp EF objective (no BEDROC)",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 85.8
+  },
+  {
+    "tag": "V05",
+    "label": "BEDROC alpha=160 (top ~0.6%)",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 196.6
+  },
+  {
+    "tag": "V06",
+    "label": "BEDROC alpha=20 (standard, top ~5%)",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 172.0
+  },
+  {
+    "tag": "V07",
+    "label": "No drug-likeness filter",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 201.5
+  },
+  {
+    "tag": "V08",
+    "label": "Stricter filter (MW<500)",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 163.0
+  },
+  {
+    "tag": "V09",
+    "label": "Drop 4 dead modalities (manual)",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 75.6
+  },
+  {
+    "tag": "V10",
+    "label": "Auto-prune at 3% threshold",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 215.7
+  },
+  {
+    "tag": "V12",
+    "label": "Strict CV (per-fold normalization)",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 215.2
+  },
+  {
+    "tag": "V13",
+    "label": "Multi-seed DE (3 seeds)",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 597.1
+  },
+  {
+    "tag": "V14",
+    "label": "Different seed (seed=7)",
+    "cv_ok": true,
+    "pipeline_ok": false,
+    "panel_ok": true,
+    "elapsed_s": 199.1
+  }
+]

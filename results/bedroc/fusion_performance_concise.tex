@@ -1,0 +1,19 @@
+\begin{table}[htbp!]
+\centering
+\caption{Fusion-method performance on the VDR ligand discovery task (mean $\\pm$ std). N=14,260 compounds (366 actives); 5-fold CV; split seed=42; drug-likeness pre-filter removed 1,799/16,059 compounds; top-k cutoffs: @1%=142, @5%=713, @10%=1426, @20%=2852, @30%=4278. Optimization objective represented by CWRA row: DE Entropy (BEDROC). EF: Enrichment Factor; Hits: number of active compounds retrieved. \textbf{Bold}: best; \underline{underlined}: second best.}
+\label{tab:fusion_performance_concise}
+\small
+\begin{tabular}{lrrrrr|rrrrr}
+\toprule
+& \multicolumn{5}{c|}{Enrichment Factor (EF)} & \multicolumn{5}{c}{Hits} \\
+Method & @1\% & @5\% & @10\% & @20\% & @30\% & @1\% & @5\% & @10\% & @20\% & @30\% \\
+\midrule
+DE Fair (BEDROC) & 22.52$\pm$7.25 & 13.01$\pm$0.88 & 7.76$\pm$1.02 & 4.60$\pm$0.31 & 3.26$\pm$0.12 & 16$\pm$5 & 48$\pm$3 & 57$\pm$7 & 67$\pm$4 & 72$\pm$3 \\
+DE Unconstrained (BEDROC) & \textbf{22.79$\pm$6.98} & 13.12$\pm$0.77 & 7.73$\pm$1.00 & 4.51$\pm$0.44 & 3.24$\pm$0.14 & \textbf{17$\pm$5} & 48$\pm$3 & 57$\pm$7 & 66$\pm$7 & 71$\pm$3 \\
+DE Entropy (BEDROC) & \underline{22.79$\pm$6.98} & \textbf{13.28$\pm$0.84} & \textbf{7.95$\pm$0.68} & \textbf{4.74$\pm$0.19} & \textbf{3.28$\pm$0.11} & \underline{17$\pm$5} & \textbf{49$\pm$3} & \textbf{58$\pm$5} & \textbf{69$\pm$3} & \textbf{72$\pm$3} \\
+Equal-weight & 12.62$\pm$3.53 & 6.50$\pm$1.33 & 5.06$\pm$0.58 & 3.22$\pm$0.21 & 2.54$\pm$0.16 & 9$\pm$3 & 24$\pm$5 & 37$\pm$4 & 47$\pm$3 & 56$\pm$4 \\
+Random (mean of 100) & 10.50$\pm$2.81 & 5.86$\pm$0.80 & 4.53$\pm$0.45 & 2.87$\pm$0.22 & 2.23$\pm$0.14 & 7$\pm$2 & 21$\pm$3 & 33$\pm$3 & 41$\pm$3 & 49$\pm$3 \\
+CWRA & 22.79$\pm$6.98 & \underline{13.28$\pm$0.84} & \underline{7.95$\pm$0.68} & \underline{4.74$\pm$0.19} & \underline{3.28$\pm$0.11} & 17$\pm$5 & \underline{49$\pm$3} & \underline{58$\pm$5} & \underline{69$\pm$3} & \underline{72$\pm$3} \\
+\bottomrule
+\end{tabular}
+\end{table}

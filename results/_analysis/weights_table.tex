@@ -1,0 +1,26 @@
+\begin{table*}[htbp]
+\centering
+\caption{Optimized CWRA weights across ablation variants (modalities with $>$5\% weight in any variant shown; remaining 2 modalities at floor).}
+\label{tab:weights}
+\small
+\begin{tabular}{l l r r r r r r r r r}
+\toprule
+  ID & Description & UniMol & DrugBAN & Vina & Boltz\_c & TankB & Boltz\_a & MolTr & MLTLE & GDT\_IC50 \\
+\midrule
+  V00 & Best config (reference) & \textbf{23.2%} & \textbf{20.9%} & \textbf{19.2%} & 14.4% & \textcolor{gray}{4.0%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.0%} \\
+  V01 & Rank normalization & \textbf{24.4%} & 6.3% & \textcolor{gray}{3.0%} & \textbf{23.8%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.3%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.0%} & \textbf{24.1%} \\
+  V02 & Robust normalization & \textbf{24.5%} & \textbf{17.1%} & 8.9% & \textbf{23.6%} & 6.7% & \textcolor{gray}{3.8%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.0%} \\
+  V03 & Default EF objective (no BEDROC) & \textbf{21.5%} & \textbf{20.1%} & 9.6% & \textbf{18.3%} & \textcolor{gray}{3.3%} & 6.1% & \textcolor{gray}{4.1%} & 5.2% & \textcolor{gray}{3.8%} \\
+  V04 & Sharp EF objective (no BEDROC) & \textbf{16.1%} & \textbf{19.5%} & 14.6% & 11.5% & 5.6% & \textcolor{gray}{4.6%} & 7.1% & 5.1% & 9.4% \\
+  V05 & BEDROC alpha=160 (top ~0.6%) & \textbf{23.2%} & \textbf{21.7%} & \textbf{21.9%} & 11.2% & \textcolor{gray}{3.0%} & \textcolor{gray}{3.7%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.0%} \\
+  V06 & BEDROC alpha=20 (standard, top ~5%) & \textbf{23.2%} & 14.9% & 9.2% & \textbf{22.9%} & 10.3% & \textcolor{gray}{4.0%} & \textcolor{gray}{3.2%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.1%} \\
+  V07 & No drug-likeness filter & \textbf{23.1%} & \textbf{20.4%} & \textbf{18.2%} & \textbf{17.1%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.0%} \\
+  V08 & Stricter filter (MW<500) & \textbf{19.0%} & \textbf{21.3%} & 13.6% & \textbf{18.2%} & 5.0% & \textcolor{gray}{3.0%} & \textcolor{gray}{4.0%} & \textcolor{gray}{3.0%} & 6.9% \\
+  V09 & Drop 4 dead modalities (manual) & \textbf{23.8%} & \textbf{22.4%} & \textbf{22.1%} & \textbf{21.0%} & \textcolor{gray}{4.0%} & \textcolor{gray}{3.5%} & — & — & \textcolor{gray}{3.1%} \\
+  V10 & Auto-prune at 3% threshold & \textbf{23.2%} & \textbf{20.9%} & \textbf{19.2%} & 14.4% & \textcolor{gray}{4.0%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.0%} \\
+  V12 & Strict CV (per-fold normalization) & \textbf{23.3%} & \textbf{20.0%} & \textbf{19.5%} & 14.9% & \textcolor{gray}{3.9%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.2%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.0%} \\
+  V13 & Multi-seed DE (3 seeds) & \textbf{23.5%} & \textbf{21.0%} & \textbf{16.2%} & \textbf{18.0%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.1%} \\
+  V14 & Different seed (seed=7) & \textbf{23.3%} & \textbf{20.7%} & \textbf{17.6%} & \textbf{16.7%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.4%} & \textcolor{gray}{3.0%} & \textcolor{gray}{3.1%} & \textcolor{gray}{3.0%} \\
+\bottomrule
+\end{tabular}
+\end{table*}

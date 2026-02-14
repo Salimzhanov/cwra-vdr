@@ -168,7 +168,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--mode", choices=["alpha", "bh"], default="bh")
     parser.add_argument("--q", type=float, default=0.1)
     parser.add_argument("--alpha", type=float, default=0.1)
-    parser.add_argument("--select-mode",vchoices=["bh", "pval_cutoff"], default="bh", help="Selection mode for Step E: bh or pval_cutoff.")
+    parser.add_argument("--select-mode", choices=["bh", "pval_cutoff"], default="bh", help="Selection mode for Step E: bh or pval_cutoff.")
     parser.add_argument("--pval-cutoff", type=float, default=None)
     parser.add_argument("--calib-negatives", choices=["rn_only", "unlabeled_random"], default="rn_only", help="Calibration negatives source for Step C.")
     parser.add_argument("--calib-neg-n", type=int, default=0, help="Number of calibration negatives for unlabeled_random (0=auto).")

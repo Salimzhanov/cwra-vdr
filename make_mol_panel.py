@@ -53,6 +53,8 @@ def main():
     args = ap.parse_args()
 
     df = pd.read_csv(args.csv)
+    # Keep original row positions from final_selected.csv for legend display.
+    df["row_in_csv"] = df.index + 1
 
     smiles_col = pick_col(df, ["smiles", "SMILES", "canonical_smiles", "rdkit_smiles"])
     if smiles_col is None:
@@ -123,8 +125,8 @@ def main():
                         legends.append("")
                     ref_added = True
 
-    for i, row in enumerate(df_sel.itertuples(index=False), start=1):
-        s = getattr(row, smiles_col)
+    for i, (_, row) in enumerate(df_sel.iterrows(), start=1):
+        s = row[smiles_col]
         m = Chem.MolFromSmiles(s) if isinstance(s, str) else None
         if m is None:
             bad += 1
@@ -133,17 +135,22 @@ def main():
         # Legend text
         pid = None
         if id_col is not None:
-            pid = getattr(row, id_col)
-        pval = getattr(row, pcol)
-        meta = getattr(row, meta_col) if meta_col is not None else None
+            pid = row[id_col]
+        pval = row[pcol]
+        meta = row[meta_col] if meta_col is not None else None
+        rownum = int(row["row_in_csv"])
 
         desc_line = _build_desc_line(m)
 
         if meta is None:
-            leg = f"{i}" + (f" | {pid}" if pid is not None else "") + f"\np={pval:.4g}\n{desc_line}"
+            leg = (
+                f"{i} | row {rownum}"
+                + (f" | {pid}" if pid is not None else "")
+                + f"\np={pval:.4g}\n{desc_line}"
+            )
         else:
             leg = (
-                f"{i}"
+                f"{i} | row {rownum}"
                 + (f" | {pid}" if pid is not None else "")
                 + f"\np={pval:.4g}  s={meta:.3f}\n{desc_line}"
             )
