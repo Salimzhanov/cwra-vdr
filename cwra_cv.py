@@ -641,7 +641,7 @@ class CWRATrainTest:
             be = self.baselines_test_[key]
             bf = self.baselines_full_[key]
             row = {'method': bt['name']}
-            for c in [1, 5, 10]:
+            for c in [1, 5, 10, 20, 30]:
                 row[f'train_ef_{c}'] = bt['performance'][c]['ef']
                 row[f'train_hits_{c}'] = bt['performance'][c]['hits']
                 row[f'test_ef_{c}'] = be['performance'][c]['ef']
@@ -660,7 +660,7 @@ class CWRATrainTest:
         for key, label in method_labels.items():
             m = self.all_methods_[key]
             row = {'method': label}
-            for c in [1, 5, 10]:
+            for c in [1, 5, 10, 20, 30]:
                 row[f'train_ef_{c}'] = m['perf_train'][c]['ef']
                 row[f'train_hits_{c}'] = m['perf_train'][c]['hits']
                 row[f'test_ef_{c}'] = m['perf_test'][c]['ef']
@@ -681,10 +681,13 @@ class CWRATrainTest:
                 be = self.baselines_test_[key]
                 bf = self.baselines_full_[key]
                 row = {'modality': name}
-                for c in [1, 5, 10]:
+                for c in [1, 5, 10, 20, 30]:
                     row[f'train_ef_{c}'] = bt['performance'][c]['ef']
+                    row[f'train_hits_{c}'] = bt['performance'][c]['hits']
                     row[f'test_ef_{c}'] = be['performance'][c]['ef']
+                    row[f'test_hits_{c}'] = be['performance'][c]['hits']
                     row[f'full_ef_{c}'] = bf['performance'][c]['ef']
+                    row[f'full_hits_{c}'] = bf['performance'][c]['hits']
                 rows.append(row)
         return pd.DataFrame(rows).sort_values('test_ef_1', ascending=False)
 
@@ -823,6 +826,13 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 'test_ef_1': perf_test[1]['ef'],
                 'test_ef_5': perf_test[5]['ef'],
                 'test_ef_10': perf_test[10]['ef'],
+                'test_ef_20': perf_test[20]['ef'],
+                'test_ef_30': perf_test[30]['ef'],
+                'test_hits_1': perf_test[1]['hits'],
+                'test_hits_5': perf_test[5]['hits'],
+                'test_hits_10': perf_test[10]['hits'],
+                'test_hits_20': perf_test[20]['hits'],
+                'test_hits_30': perf_test[30]['hits'],
             })
 
         chosen_data = all_methods[chosen]
@@ -869,7 +879,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 'fold': fold_idx,
                 'baseline': be['name'],
             }
-            for c in [1, 5, 10]:
+            for c in [1, 5, 10, 20, 30]:
                 row[f'train_ef_{c}'] = bt['performance'][c]['ef']
                 row[f'train_hits_{c}'] = bt['performance'][c]['hits']
                 row[f'test_ef_{c}'] = be['performance'][c]['ef']
@@ -883,13 +893,11 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
             if key not in baselines_test:
                 continue
             be = baselines_test[key]
-            indiv_rows.append({
-                'fold': fold_idx,
-                'modality': name,
-                'test_ef_1': be['performance'][1]['ef'],
-                'test_ef_5': be['performance'][5]['ef'],
-                'test_ef_10': be['performance'][10]['ef'],
-            })
+            row = {'fold': fold_idx, 'modality': name}
+            for c in [1, 5, 10, 20, 30]:
+                row[f'test_ef_{c}'] = be['performance'][c]['ef']
+                row[f'test_hits_{c}'] = be['performance'][c]['hits']
+            indiv_rows.append(row)
 
     perf_df = pd.DataFrame(perf_rows)
     weights_df = pd.DataFrame(weight_rows)
@@ -923,9 +931,16 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         baseline_df.to_csv(output_dir / f'{prefix}_cv_folds_baselines.csv', index=False)
         fold_info_df.to_csv(output_dir / f'{prefix}_cv_folds_info.csv', index=False)
         summary_df.to_csv(output_dir / f'{prefix}_cv_summary.csv', index=False)
+        indiv_df.to_csv(output_dir / f'{prefix}_cv_folds_individual.csv', index=False)
+        method_df.to_csv(output_dir / f'{prefix}_cv_folds_methods.csv', index=False)
+
+        # Build and save the paper-ready table
+        paper_df = build_paper_table(indiv_df, baseline_df, method_df, chosen)
+        paper_df.to_csv(output_dir / f'{prefix}_paper_table.csv', index=False)
 
         if verbose:
             print(f"\nResults saved to {output_dir}/")
+            print(f"Paper table: {output_dir / f'{prefix}_paper_table.csv'}")
 
     if verbose:
         elapsed = time.time() - t0
@@ -1015,11 +1030,13 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                     _fmt_pm(grp['test_ef_1'].mean(), grp['test_ef_1'].std(ddof=0)),
                     _fmt_pm(grp['test_ef_5'].mean(), grp['test_ef_5'].std(ddof=0)),
                     _fmt_pm(grp['test_ef_10'].mean(), grp['test_ef_10'].std(ddof=0)),
+                    _fmt_pm(grp['test_ef_20'].mean(), grp['test_ef_20'].std(ddof=0)) if 'test_ef_20' in grp.columns else 'N/A',
+                    _fmt_pm(grp['test_ef_30'].mean(), grp['test_ef_30'].std(ddof=0)) if 'test_ef_30' in grp.columns else 'N/A',
                 ])
             rows.sort(key=lambda r: float(r[1].split()[0]), reverse=True)
             _print_table(
                 "Individual modality performance (test set, mean +/- std)",
-                ["Modality", "EF@1%", "EF@5%", "EF@10%"],
+                ["Modality", "EF@1%", "EF@5%", "EF@10%", "EF@20%", "EF@30%"],
                 rows,
             )
 
@@ -1039,6 +1056,8 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 _fmt_pm(grp['test_ef_1'].mean(), grp['test_ef_1'].std(ddof=0)),
                 _fmt_pm(grp['test_ef_5'].mean(), grp['test_ef_5'].std(ddof=0)),
                 _fmt_pm(grp['test_ef_10'].mean(), grp['test_ef_10'].std(ddof=0)),
+                _fmt_pm(grp['test_ef_20'].mean(), grp['test_ef_20'].std(ddof=0)) if 'test_ef_20' in grp.columns else 'N/A',
+                _fmt_pm(grp['test_ef_30'].mean(), grp['test_ef_30'].std(ddof=0)) if 'test_ef_30' in grp.columns else 'N/A',
             ])
 
         for baseline_name in baseline_df['baseline'].unique():
@@ -1049,18 +1068,232 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                     _fmt_pm(grp['test_ef_1'].mean(), grp['test_ef_1'].std(ddof=0)),
                     _fmt_pm(grp['test_ef_5'].mean(), grp['test_ef_5'].std(ddof=0)),
                     _fmt_pm(grp['test_ef_10'].mean(), grp['test_ef_10'].std(ddof=0)),
+                    _fmt_pm(grp['test_ef_20'].mean(), grp['test_ef_20'].std(ddof=0)) if 'test_ef_20' in grp.columns else 'N/A',
+                    _fmt_pm(grp['test_ef_30'].mean(), grp['test_ef_30'].std(ddof=0)) if 'test_ef_30' in grp.columns else 'N/A',
                 ])
 
         if combo_rows:
             _print_table(
                 "Combination methods (test set, mean +/- std)",
-                ["Method", "EF@1%", "EF@5%", "EF@10%"],
+                ["Method", "EF@1%", "EF@5%", "EF@10%", "EF@20%", "EF@30%"],
                 combo_rows,
             )
 
         print(f"\nDone! Elapsed: {elapsed:.1f}s")
 
     return perf_df, summary_df
+
+
+# =============================================================================
+# PAPER TABLE BUILDER
+# =============================================================================
+
+CUTOFFS = [1, 5, 10, 20, 30]
+
+
+def build_paper_table(
+    indiv_df: pd.DataFrame,
+    baseline_df: pd.DataFrame,
+    method_df: pd.DataFrame,
+    chosen_method: str = "fair",
+) -> pd.DataFrame:
+    """
+    Aggregate per-fold CV results into a single paper-ready table.
+
+    Returns a DataFrame with columns:
+        method, ef_1, ef_5, ..., ef_30, hits_1, ..., hits_30
+        (and their _std variants)
+
+    Rows: one per individual modality, then Equal-weight, then CWRA.
+    Sorted by EF@1% descending within each group.
+    """
+    rows = []
+
+    # --- Individual modalities ---
+    for name, grp in indiv_df.groupby("modality"):
+        row = {"method": name, "kind": "individual"}
+        for c in CUTOFFS:
+            ef_col = f"test_ef_{c}"
+            hits_col = f"test_hits_{c}"
+            if ef_col in grp.columns:
+                row[f"ef_{c}"] = grp[ef_col].mean()
+                row[f"ef_{c}_std"] = grp[ef_col].std(ddof=0)
+            if hits_col in grp.columns:
+                row[f"hits_{c}"] = grp[hits_col].mean()
+                row[f"hits_{c}_std"] = grp[hits_col].std(ddof=0)
+        rows.append(row)
+
+    # --- Equal-weight baseline ---
+    eq = baseline_df[baseline_df["baseline"] == "Equal Weights"]
+    if not eq.empty:
+        row = {"method": "Equal-weight", "kind": "baseline"}
+        for c in CUTOFFS:
+            ef_col = f"test_ef_{c}"
+            hits_col = f"test_hits_{c}"
+            if ef_col in eq.columns:
+                row[f"ef_{c}"] = eq[ef_col].mean()
+                row[f"ef_{c}_std"] = eq[ef_col].std(ddof=0)
+            if hits_col in eq.columns:
+                row[f"hits_{c}"] = eq[hits_col].mean()
+                row[f"hits_{c}_std"] = eq[hits_col].std(ddof=0)
+        rows.append(row)
+
+    # --- CWRA (chosen method) ---
+    cwra = method_df[method_df["method"] == chosen_method]
+    if not cwra.empty:
+        row = {"method": "CWRA", "kind": "cwra"}
+        for c in CUTOFFS:
+            ef_col = f"test_ef_{c}"
+            hits_col = f"test_hits_{c}"
+            if ef_col in cwra.columns:
+                row[f"ef_{c}"] = cwra[ef_col].mean()
+                row[f"ef_{c}_std"] = cwra[ef_col].std(ddof=0)
+            if hits_col in cwra.columns:
+                row[f"hits_{c}"] = cwra[hits_col].mean()
+                row[f"hits_{c}_std"] = cwra[hits_col].std(ddof=0)
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+
+    # Sort: individuals by EF@1% desc, then baselines, then CWRA last
+    kind_order = {"individual": 0, "baseline": 1, "cwra": 2}
+    df["_sort_kind"] = df["kind"].map(kind_order)
+    df = df.sort_values(
+        ["_sort_kind", "ef_1"], ascending=[True, False]
+    ).drop(columns=["_sort_kind"]).reset_index(drop=True)
+
+    return df
+
+
+def paper_table_to_latex(
+    df: pd.DataFrame,
+    caption: str = (
+        "Virtual screening performance of individual scoring methods and "
+        "fusion baselines on the VDR ligand discovery task (5-fold CV, "
+        "mean $\\pm$ std over test folds). "
+        "EF: Enrichment Factor; Hits: number of active compounds retrieved. "
+        "\\textbf{Bold}: best; \\underline{underlined}: second best."
+    ),
+    label: str = "tab:fusion_performance",
+    show_std: bool = True,
+) -> str:
+    """
+    Convert the paper table DataFrame to LaTeX source.
+
+    Parameters
+    ----------
+    df : DataFrame from build_paper_table()
+    caption : LaTeX caption string
+    label : LaTeX label string
+    show_std : if True, format as mean±std; if False, mean only
+
+    Returns
+    -------
+    LaTeX string ready for inclusion in a .tex file.
+    """
+    cutoffs = CUTOFFS
+
+    # Identify best and second-best per column
+    def _rank_col(col_name):
+        vals = df[col_name].values
+        order = np.argsort(-vals)  # descending
+        return order[0], order[1] if len(order) > 1 else (order[0], order[0])
+
+    best_idx = {}
+    second_idx = {}
+    for c in cutoffs:
+        for prefix in ["ef", "hits"]:
+            col = f"{prefix}_{c}"
+            if col in df.columns:
+                b, s = _rank_col(col)
+                best_idx[col] = b
+                second_idx[col] = s
+
+    # Method name formatting for LaTeX
+    latex_names = {
+        "GraphDTA_Kd": r"GraphDTA $K_{d}$",
+        "GraphDTA_Ki": r"GraphDTA $K_{i}$",
+        "GraphDTA_IC50": r"GraphDTA $IC_{50}$",
+        "MLTLE_pKd": r"MLTLE $pK_d$",
+        "Vina": "AutoDock Vina",
+        "Boltz_affinity": "Boltz-2 affinity",
+        "TankBind": "TankBind",
+        "DrugBAN": "DrugBAN",
+        "MolTrans": "MolTrans",
+        "Equal-weight": "Equal-weight",
+        "CWRA": "CWRA",
+    }
+
+    def _fmt_val(row_idx, col, is_hits=False):
+        val = df.loc[row_idx, col]
+        std_col = f"{col}_std"
+        std = df.loc[row_idx, std_col] if show_std and std_col in df.columns else None
+
+        if is_hits:
+            txt = f"{val:.0f}"
+            if show_std and std is not None and std > 0:
+                txt = f"{val:.0f}$\\pm${std:.0f}"
+        else:
+            txt = f"{val:.2f}"
+            if show_std and std is not None and std > 0:
+                txt = f"{val:.2f}$\\pm${std:.2f}"
+
+        if best_idx.get(col) == row_idx:
+            txt = f"\\textbf{{{txt}}}"
+        elif second_idx.get(col) == row_idx:
+            txt = f"\\underline{{{txt}}}"
+        return txt
+
+    # Build LaTeX
+    lines = []
+    lines.append(r"\begin{table*}[htbp!]")
+    lines.append(r"\centering")
+    lines.append(f"\\caption{{{caption}}}")
+    lines.append(f"\\label{{{label}}}")
+    lines.append(r"\small")
+
+    n_c = len(cutoffs)
+    col_spec = "l" + "r" * n_c + "|" + "r" * n_c
+    lines.append(f"\\begin{{tabular}}{{{col_spec}}}")
+    lines.append(r"\toprule")
+
+    # Header row 1
+    ef_header = f"\\multicolumn{{{n_c}}}{{c|}}{{Enrichment Factor (EF)}}"
+    hits_header = f"\\multicolumn{{{n_c}}}{{c}}{{Hits}}"
+    lines.append(f"& {ef_header} & {hits_header} \\\\")
+
+    # Header row 2
+    ef_cols = " & ".join([f"@{c}\\%" for c in cutoffs])
+    hits_cols = " & ".join([f"@{c}\\%" for c in cutoffs])
+    lines.append(f"Method & {ef_cols} & {hits_cols} \\\\")
+    lines.append(r"\midrule")
+
+    # Data rows
+    prev_kind = None
+    for idx, row in df.iterrows():
+        kind = row["kind"]
+        if prev_kind == "individual" and kind != "individual":
+            lines.append(r"\midrule")
+        prev_kind = kind
+
+        name = latex_names.get(row["method"], row["method"])
+
+        ef_cells = []
+        hits_cells = []
+        for c in cutoffs:
+            ef_col = f"ef_{c}"
+            hits_col = f"hits_{c}"
+            ef_cells.append(_fmt_val(idx, ef_col, is_hits=False))
+            hits_cells.append(_fmt_val(idx, hits_col, is_hits=True))
+
+        cells = " & ".join(ef_cells + hits_cells)
+        lines.append(f"{name} & {cells} \\\\")
+
+    lines.append(r"\bottomrule")
+    lines.append(r"\end{tabular}")
+    lines.append(r"\end{table*}")
+
+    return "\n".join(lines)
 
 
 # =============================================================================
@@ -1085,6 +1318,10 @@ def main():
                         help='Number of CV folds over actives (>=2 enables CV)')
     parser.add_argument('--seed', type=int, default=42,
                         help='Seed for both DE and active split')
+    parser.add_argument('--latex', action='store_true', default=False,
+                        help='Generate LaTeX table source file')
+    parser.add_argument('--no-std', action='store_true', default=False,
+                        help='Omit ±std in LaTeX table (show means only)')
 
     args = parser.parse_args()
 
@@ -1105,6 +1342,17 @@ def main():
 
     if args.cv_folds and args.cv_folds > 1:
         run_cross_validation(df, config, args.cv_folds, output_dir=output_dir, verbose=True)
+
+        if args.latex:
+            prefix = config.output_prefix
+            paper_csv = output_dir / f'{prefix}_paper_table.csv'
+            if paper_csv.exists():
+                paper_df = pd.read_csv(paper_csv)
+                latex_src = paper_table_to_latex(paper_df, show_std=not args.no_std)
+                latex_path = output_dir / f'{prefix}_table.tex'
+                with open(latex_path, 'w', encoding='utf-8') as f:
+                    f.write(latex_src)
+                print(f"LaTeX table written to {latex_path}")
     else:
         cwra = CWRATrainTest(config)
         cwra.fit(df)

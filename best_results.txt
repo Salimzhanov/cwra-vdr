@@ -1,0 +1,259 @@
+(cwra-vdr) isabella@gaia:~/fazli/code/cwra-vdr$ python cwra_cv_v2.py -i data/composed_modalities_with_rdkit.csv \
+-o results/v0_baseline --norm minmax  --max-mw 600 --max-rotb 15 --objective default --include-boltz-confidence \
+--include-unimol --cv-folds 5 --seed 42 --latex --extra-metrics  --bedroc --bedroc-alpha 80.0
+
+
+Loaded 16,196 compounds
+================================================================================
+CWRA K-FOLD CROSS-VALIDATION (k=5)
+================================================================================
+[21:44:06] Explicit valence for atom # 1 N, 5, is greater than permitted
+[21:44:06] Explicit valence for atom # 1 Si, 5, is greater than permitted
+
+Drug-likeness filter: 16059 -> 14260 (removed 1799 non-actives: MW>600.0: 1208, RotB>15: 589, parse fail: 2)
+
+Dataset: 14,260 compounds, 366 actives (2.57%)
+Modalities: 11
+Method: fair
+CV folds: 5
+CV seed: 42
+
+Fold 1/5: 292 train actives / 74 test actives
+--- Optimizing weights on TRAIN actives (292) ---
+  Running unconstrained_bedroc optimization...
+  Running fair_bedroc optimization...
+  Running entropy_bedroc optimization...
+Computing baselines...
+
+Fold 2/5: 293 train actives / 73 test actives
+--- Optimizing weights on TRAIN actives (293) ---
+  Running unconstrained_bedroc optimization...
+  Running fair_bedroc optimization...
+  Running entropy_bedroc optimization...
+Computing baselines...
+
+Fold 3/5: 293 train actives / 73 test actives
+--- Optimizing weights on TRAIN actives (293) ---
+  Running unconstrained_bedroc optimization...
+  Running fair_bedroc optimization...
+  Running entropy_bedroc optimization...
+Computing baselines...
+
+Fold 4/5: 293 train actives / 73 test actives
+--- Optimizing weights on TRAIN actives (293) ---
+  Running unconstrained_bedroc optimization...
+  Running fair_bedroc optimization...
+  Running entropy_bedroc optimization...
+Computing baselines...
+
+Fold 5/5: 293 train actives / 73 test actives
+--- Optimizing weights on TRAIN actives (293) ---
+  Running unconstrained_bedroc optimization...
+  Running fair_bedroc optimization...
+  Running entropy_bedroc optimization...
+Computing baselines...
+
+Results saved to results/v0_baseline/
+Paper table: results/v0_baseline/cwra_cv_paper_table.csv
+
+================================================================================
+RESULTS (method: fair_bedroc) — elapsed: 210.9s
+================================================================================
+  Cutoff            TRAIN EF  (hits)             TEST EF  (hits)             FULL EF  (hits)
+--------------------------------------------------------------------------------------------
+  @ 0.5%       25.66 +/- 2.51 ( 37.4)       24.71 +/- 9.57 (  9.0)       25.46 +/- 0.30 ( 46.4)
+  @   1%       22.43 +/- 1.95 ( 65.4)       22.79 +/- 7.80 ( 16.6)       22.50 +/- 0.00 ( 82.0)
+  @   5%       13.06 +/- 0.25 (191.2)       13.06 +/- 0.95 ( 47.8)       13.06 +/- 0.07 (239.0)
+  @  10%        7.96 +/- 0.62 (233.2)        7.98 +/- 0.60 ( 58.4)        7.97 +/- 0.56 (291.6)
+  @  20%        4.65 +/- 0.19 (272.4)        4.70 +/- 0.22 ( 68.8)        4.66 +/- 0.19 (341.2)
+  @  30%        3.27 +/- 0.04 (287.6)        3.26 +/- 0.11 ( 71.6)        3.27 +/- 0.04 (359.2)
+
+--- Overfitting diagnostics (means) ---
+  EF@1%  train=22.43  test=22.79  gap=-0.36 (-1.6% drop)
+  EF@5%  train=13.06  test=13.06  gap=-0.00 (-0.0% drop)
+  EF@10%  train=7.96  test=7.98  gap=-0.01 (-0.2% drop)
+
+--- Test-set comparison (mean across folds) ---
+  Equal-weight  EF@1%: 12.62
+  Best-indiv    EF@1%: 16.28 (Best Individual (Boltz_confidence))
+  CWRA (test)   EF@1%: 22.79
+  CWRA vs equal-weight: +80.6%
+  CWRA vs best-indiv:   +40.0%
+
+Optimized weights (mean across folds):
+            UniMol_sim: 0.2338 (23.4%)
+               DrugBAN: 0.2094 (20.9%)
+                  Vina: 0.1942 (19.4%)
+      Boltz_confidence: 0.1500 (15.0%)
+             MLTLE_pKd: 0.0312 (3.1%)
+              TankBind: 0.0307 (3.1%)
+              MolTrans: 0.0304 (3.0%)
+           GraphDTA_Kd: 0.0302 (3.0%)
+        Boltz_affinity: 0.0300 (3.0%)
+           GraphDTA_Ki: 0.0300 (3.0%)
+         GraphDTA_IC50: 0.0300 (3.0%)
+
+  Normalized entropy: 0.838 +/- 0.002
+  Significant (>5%): 4.00 +/- 0.00/11
+
+--- Individual modality performance (test set, mean +/- std) ---
+Modality          EF@1%           EF@5%           EF@10%         EF@20%         EF@30%       
+---------------------------------------------------------------------------------------------
+UniMol_sim        17.58 +/- 3.68  12.79 +/- 1.10  6.64 +/- 0.55  3.52 +/- 0.18  2.55 +/- 0.05
+GraphDTA_IC50     16.20 +/- 5.12  7.16 +/- 0.90   4.24 +/- 0.50  2.50 +/- 0.30  1.89 +/- 0.22
+Boltz_confidence  12.89 +/- 3.04  11.37 +/- 0.83  9.64 +/- 0.11  5.00 +/- 0.00  3.33 +/- 0.00
+MLTLE_pKd         5.21 +/- 1.03   2.08 +/- 0.54   2.27 +/- 0.43  1.76 +/- 0.18  1.60 +/- 0.18
+Boltz_affinity    4.93 +/- 2.38   7.05 +/- 0.81   5.60 +/- 0.40  3.99 +/- 0.14  2.92 +/- 0.05
+DrugBAN           3.85 +/- 2.21   1.80 +/- 0.29   1.83 +/- 0.56  1.68 +/- 0.33  1.51 +/- 0.21
+Vina              2.47 +/- 1.59   1.64 +/- 0.76   1.67 +/- 0.32  1.69 +/- 0.18  1.67 +/- 0.15
+GraphDTA_Kd       1.09 +/- 1.34   0.66 +/- 0.28   0.85 +/- 0.18  0.90 +/- 0.21  1.00 +/- 0.08
+TankBind          0.55 +/- 0.67   0.38 +/- 0.13   0.19 +/- 0.07  0.25 +/- 0.11  0.24 +/- 0.07
+MolTrans          0.28 +/- 0.55   0.33 +/- 0.11   0.27 +/- 0.09  0.55 +/- 0.09  0.58 +/- 0.12
+GraphDTA_Ki       0.00 +/- 0.00   0.16 +/- 0.22   0.16 +/- 0.10  0.14 +/- 0.10  0.18 +/- 0.08
+
+--- Combination methods (test set, mean +/- std) ---
+Method                     EF@1%           EF@5%           EF@10%         EF@20%         EF@30%       
+------------------------------------------------------------------------------------------------------
+DE Fair (BEDROC)           22.79 +/- 6.98  13.06 +/- 0.85  7.98 +/- 0.54  4.70 +/- 0.20  3.26 +/- 0.10
+DE Unconstrained (BEDROC)  22.79 +/- 6.98  13.12 +/- 0.77  7.87 +/- 1.01  4.59 +/- 0.40  3.23 +/- 0.12
+DE Entropy (BEDROC)        22.24 +/- 6.86  13.12 +/- 0.77  7.84 +/- 0.68  4.60 +/- 0.19  3.30 +/- 0.05
+Equal Weights              12.62 +/- 3.53  6.50 +/- 1.33   5.06 +/- 0.58  3.22 +/- 0.21  2.54 +/- 0.16
+Random (mean of 100)       10.49 +/- 2.82  5.74 +/- 0.79   4.28 +/- 0.42  2.74 +/- 0.20  2.16 +/- 0.13
+
+
+
+
+(cwra-vdr) isabella@gaia:~/fazli/code/cwra-vdr$ python run_pu_conformal_pipeline.py \
+  --input data/composed_modalities_with_rdkit.csv \
+  --outdir results/pu_conformal_v2 \
+  --score-source cwra \
+  --cwra-weights-csv results/bedroc/cwra_cv_mean_weights.csv \
+  --cwra-norm minmax \
+  --max-mw 600 --max-rotb 15 \
+  --calib-negatives unlabeled_random \
+  --select-mode pval_cutoff --pval-cutoff 0.001 \
+  --pval-type unweighted \
+  --top-k 2000 \
+  --seed 42
+INFO: Input: data/composed_modalities_with_rdkit.csv
+INFO: Output root: results/pu_conformal_v2
+INFO: Params: seed=42 neg_pos_ratio=10 bottom_q=0.200 sim_max=0.350 calib_frac=0.300 clip=20.0 mode=bh q=0.100 alpha=0.100 select_mode=pval_cutoff pval_cutoff=0.001 calib_negatives=unlabeled_random calib_neg_n=0 calib_neg_sim_max=None score_source=cwra cwra_weights_csv=results/bedroc/cwra_cv_mean_weights.csv cwra_norm=minmax top_k=2000 pval_type=unweighted max_mw=600 max_rotb=15 min_qed=0.00
+INFO: === Step A: Reliable negatives ===
+INFO: Loaded 16196 rows, pool after exclude_sources: 16059
+INFO: Active count: 366
+INFO: Using 9 modalities for X_mod
+INFO: Building reliable negatives: neg_pos_ratio=10 bottom_q=0.2 seed=42 use_rdkit=True sim_max=0.35
+INFO: Total=16059, positives=366, unlabeled=15693
+INFO: Candidate RN pool (bottom_q): 3139
+INFO: RN target size: 3139
+INFO: Candidate RN pool after similarity filter: 2690
+WARNING: Similarity filtering reduced RN pool below target (2690 < 3139); using available.
+INFO: Selected RN count: 2690
+INFO: PU labels: pos=366 rn=2690 unlabeled=13003
+INFO: Wrote outputs to results/pu_conformal_v2/A
+INFO: Step A report: {'N': 16059, 'n_pos': 366, 'n_rn': 2690, 'bottom_q': 0.2, 'sim_max': 0.35, 'neg_pos_ratio': 10, 'seed': 42, 'used_modality_keys': ['graphdta_kd', 'graphdta_ki', 'graphdta_ic50', 'mltle_pKd', 'vina_score', 'boltz_affinity', 'tankbind_affinity', 'drugban_affinity', 'moltrans_affinity']}
+INFO: Step A pu_labels rows=16059 cols=3
+INFO: Step A pu_label counts (top 5): {-1: 13003, 0: 2690, 1: 366}
+INFO: === Drug-likeness pre-filter ===
+INFO: Drug-likeness filter MW>600: 1188 unlabeled excluded
+INFO: Drug-likeness filter RotB>15: 1049 unlabeled excluded
+INFO: Drug-likeness pre-filter: 1651 / 13003 unlabeled excluded (12.7%), 11352 remain
+INFO: Post-filter pu_label counts (top 5): {-1: 11352, 0: 2690, -2: 1651, 1: 366}
+INFO: === Step B: Scoring (cwra) ===
+INFO: X_mod shape: (16059, 11), modalities: ['GraphDTA_Kd', 'GraphDTA_Ki', 'GraphDTA_IC50', 'MLTLE_pKd', 'Vina', 'Boltz_affinity', 'TankBind', 'DrugBAN', 'MolTrans', 'UniMol_sim', 'Boltz_confidence']
+INFO: Active count: 366
+INFO: Using pre-computed weights from weights CSV: results/bedroc/cwra_cv_mean_weights.csv
+INFO: Weights: GraphDTA_Kd: 0.0302 (3.0%)
+INFO: Weights: GraphDTA_Ki: 0.0300 (3.0%)
+INFO: Weights: GraphDTA_IC50: 0.0300 (3.0%)
+INFO: Weights: MLTLE_pKd: 0.0312 (3.1%)
+INFO: Weights: Vina: 0.1942 (19.4%)
+INFO: Weights: Boltz_affinity: 0.0300 (3.0%)
+INFO: Weights: TankBind: 0.0307 (3.1%)
+INFO: Weights: DrugBAN: 0.2094 (20.9%)
+INFO: Weights: MolTrans: 0.0304 (3.0%)
+INFO: Weights: UniMol_sim: 0.2338 (23.4%)
+INFO: Weights: Boltz_confidence: 0.1500 (15.0%)
+INFO: Skipping DE optimization.
+INFO: Score range: [0.2932, 0.8774], median=0.4758
+INFO:   positives: median=0.7330, mean=0.7167, min=0.4840, max=0.8774
+INFO:   RN: median=0.4044, mean=0.4039, min=0.2932, max=0.5815
+INFO:   unlabeled: median=0.4935, mean=0.5175, min=0.3237, max=0.8675
+INFO: Wrote outputs to results/pu_conformal_v2/B
+INFO: Unlabeled pool size: 11352
+INFO: Positive count: 366
+[22:42:49] Explicit valence for atom # 1 N, 5, is greater than permitted
+WARNING: Invalid SMILES for unlabeled index 1328; skipping.
+[22:42:49] Explicit valence for atom # 1 Si, 5, is greater than permitted
+WARNING: Invalid SMILES for unlabeled index 3608; skipping.
+INFO: Unlabeled after sim-filter (<= 0.350): 4098
+INFO: Selected 2690 calibration negatives.
+INFO: Wrote outputs to results/pu_conformal_v2/B2
+INFO: Step B meta_scores rows=16059 cols=5
+INFO: Step B pu_label counts (top 5): {-1: 11352, 0: 2690, -2: 1651, 1: 366}
+INFO: Step B top-5 by meta_score:
+     source  pu_label  meta_score
+initial_370         1    0.877431
+initial_370         1    0.871988
+initial_370         1    0.871605
+initial_370         1    0.870656
+         G2        -1    0.867452
+INFO: Score dist (cwra, positives): median=0.7330 mean=0.7167 std=0.0885 min=0.4840 max=0.8774
+INFO: Score dist (cwra, RN): median=0.4044 mean=0.4039 std=0.0254 min=0.2932 max=0.5815
+INFO: Score dist (cwra, unlabeled): median=0.4935 mean=0.5175 std=0.0815 min=0.3237 max=0.8675
+INFO: RN 99th percentile meta_score: 0.460764
+INFO: Meta_score at rank 1000: 0.653524
+INFO: Score dist (cwra, calib_neg): median=0.4606 mean=0.4626 std=0.0305 min=0.3833 max=0.5713
+INFO: Score separation OK: unlabeled median (0.4935) <= calib_neg max (0.5713) — conformal selection will be discriminative.
+INFO: === Step C: Unweighted conformal ===
+INFO: Calibration set size: 2690
+INFO: Min achievable p-value: 0.000372
+INFO: P-value medians: pos=0.000372 rn=0.982163 unlabeled=0.158305
+INFO: Wrote outputs to results/pu_conformal_v2/C
+INFO: Step C conformal_pvalues rows=16059 cols=5
+INFO: P-value sanity check (unweighted): pos_median=0.0004 neg_median=0.9822 unlabeled_median=0.1583
+INFO: === Step D: Weighted conformal ===
+INFO: Using 17 descriptor columns: MW, cLogP, tPSA, HBD, HBA, RotB, RingCount, AromaticRingCount, FractionCSP3, HeavyAtomCount, FormalCharge, MR, NumStereocenters, BertzCT, LabuteASA, QED, SAScore
+INFO: Descriptor NaN counts: {'MW': 2, 'cLogP': 2, 'tPSA': 2, 'HBD': 2, 'HBA': 2, 'RotB': 2, 'RingCount': 2, 'AromaticRingCount': 2, 'FractionCSP3': 2, 'HeavyAtomCount': 2, 'FormalCharge': 2, 'MR': 2, 'NumStereocenters': 2, 'BertzCT': 2, 'LabuteASA': 2, 'QED': 2, 'SAScore': 2}
+INFO: Built feature matrix: 16059 rows, 26 features
+WARNING: Dropping 2 rows with NaN/inf in features.
+WARNING: Scaler not found; fitting on labeled set only.
+INFO: Standardized features using train-only statistics.
+INFO: Using calibration indices from Step C (n=2690).
+INFO: Wrote outputs to results/pu_conformal_v2/D
+INFO: Step D weighted_pvalues rows=16057 cols=7
+INFO: Step D top-5 by meta_score:
+ pu_label  meta_score  pval_weighted  pval_unweighted
+        1    0.877431       0.003881         0.000372
+        1    0.871988       0.005744         0.000372
+        1    0.871605       0.002109         0.000372
+        1    0.870656       0.000827         0.000372
+       -1    0.867452       0.001905         0.000372
+INFO: Weighted vs unweighted (positives): weighted_med=0.0025 unweighted_med=0.0004
+INFO: Weighted vs unweighted (unlabeled): weighted_med=0.2090 unweighted_med=0.1583
+INFO: Importance weights: n_eff=5895.6 / n=16057 (ratio=0.37)
+INFO: === Step E: Final selection ===
+INFO: Using p-value column: pval_unweighted
+WARNING: Aligned input to pvalues using index column.
+INFO: Universe exclusion: n_unlabeled_total=11350 n_calib_neg=2690 n_universe_after_exclusion=9616
+INFO: Pre-filtered BH universe to top 2000 by meta_score (was 9616)
+INFO: P-value stats in universe: p_min=0.000372 p_95=0.000372 p_99=0.000372 p_max=0.000372
+INFO: Meta-score threshold at top-2000: 0.590948
+INFO: Selection mode: pval_cutoff
+INFO: Selection threshold: 0.001000
+INFO: Selected 2000 / 2000 rows
+INFO: Wrote outputs to results/pu_conformal_v2/E
+INFO: Step E report: {'mode': 'pval_cutoff', 'alpha': 0.1, 'q': 0.1, 'pval_column': 'pval_unweighted', 'select_over': 'unlabeled', 'n_universe': 2000, 'n_selected': 2000, 'top_k': 2000, 'pval_type': 'unweighted', 'n_pos_selected': 0, 'meta_score_threshold': 0.590947652491915}
+INFO: Step E final_selected rows=16057 cols=8
+INFO: Step E selected counts (top 2): {False: 14057, True: 2000}
+INFO: Step E selected-by-source source counts (top 10): {'G1': 15501, 'initial_370': 365, 'G2': 161, 'G3': 29, 'calcitriol': 1}
+INFO: Pipeline summary: 13003 unlabeled → 11352 after drug-likeness filter → 2000 in selection universe → 2000 selected
+INFO: Wrote combined report to results/pu_conformal_v2/combined_report.csv
+(cwra-vdr) isabella@gaia:~/fazli/code/cwra-vdr$ python make_mol_panel.py \
+  --csv results/pu_conformal_v2/E/final_selected.csv \
+  --out results/pu_conformal_v2/E/panel_10x5.pdf \
+  --n 50 --per-row 5 --cell 320 \
+  --sort pval \
+  --tau 0.001
+Wrote: results/pu_conformal_v2/E/panel_10x5.pdf
+Selected rows drawn: 50 / 50
