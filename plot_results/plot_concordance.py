@@ -53,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         default="data/composed_modalities_with_rdkit.csv",
-        help="Input CSV file with modality columns.",
+        help="Input CSV file with modality columns. Drug-likeness filtering is applied before concordance calculation unless disabled.",
     )
     parser.add_argument(
         "--mode",
@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         default=None,
-        help="Output figure path (default: plor_results/concordance_heatmap10.pdf or ...11.pdf).",
+        help="Output figure path (default: plot_results/concordance_heatmap10.pdf or ...11.pdf).",
     )
     parser.add_argument(
         "--matrix-out",
@@ -78,6 +78,23 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.62,
         help="Annotation text switches to light color above this value.",
+    )
+    parser.add_argument(
+        "--max-mw",
+        type=float,
+        default=600,
+        help="Maximum molecular weight (MW) retained by the pre-concordance drug-likeness filter.",
+    )
+    parser.add_argument(
+        "--max-rotb",
+        type=float,
+        default=15,
+        help="Maximum rotatable bonds (RotB) retained by the pre-concordance drug-likeness filter.",
+    )
+    parser.add_argument(
+        "--no-druglike-filter",
+        action="store_true",
+        help="Skip MW/RotB drug-likeness filtering before concordance calculation.",
     )
     return parser.parse_args()
 
@@ -214,7 +231,7 @@ def plot_concordance(
     except OSError:
         pass
 
-    bg = "#EAEAF2"
+    bg = "#FFFFFF"
     fig, ax = plt.subplots(figsize=(8.8, 8.1))
     fig.patch.set_facecolor(bg)
     ax.set_facecolor(bg)
@@ -290,10 +307,27 @@ def main() -> None:
     modalities = get_modalities(args.mode)
     df = pd.read_csv(args.input)
 
+    if not args.no_druglike_filter:
+        required_cols = ["MW", "RotB"]
+        missing = [col for col in required_cols if col not in df.columns]
+        if missing:
+            raise ValueError(
+                f"Drug-likeness filtering requires columns {required_cols}; missing: {missing}"
+            )
+
+        before_count = len(df)
+        df = df[(df["MW"] <= args.max_mw) & (df["RotB"] <= args.max_rotb)]
+        after_count = len(df)
+        removed_count = before_count - after_count
+        print(
+            f"Applied drug-likeness filter (MW <= {args.max_mw}, RotB <= {args.max_rotb}): "
+            f"removed {removed_count} rows, {after_count} remain."
+        )
+
     matrix = compute_concordance_matrix(df, modalities)
 
     default_name = "concordance_heatmap10.pdf" if args.mode == "paper10" else "concordance_heatmap11.pdf"
-    output_path = Path(args.output) if args.output else Path("plor_results") / default_name
+    output_path = Path(args.output) if args.output else Path("plot_results") / default_name
     plot_concordance(
         matrix=matrix,
         output_path=output_path,
