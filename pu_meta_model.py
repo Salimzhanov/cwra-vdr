@@ -12,10 +12,14 @@ import pandas as pd
 import logging
 
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.frozen import FrozenEstimator
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
+try:
+    # Available in newer scikit-learn versions.
+    from sklearn.frozen import FrozenEstimator
+except Exception:  # pragma: no cover - compatibility fallback
+    FrozenEstimator = None
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +130,14 @@ def calibrate_model(model, X_cal: np.ndarray, y_cal: np.ndarray, method: str = "
     Calibrate a prefit model using held-out labeled data.
     """
     logger.info("Calibrating model with method=%s on %d samples", method, len(y_cal))
-    calibrator = CalibratedClassifierCV(FrozenEstimator(model), method=method, cv=5)
+    if FrozenEstimator is not None:
+        calibrator = CalibratedClassifierCV(FrozenEstimator(model), method=method, cv=5)
+    else:
+        # Backward compatibility for older scikit-learn.
+        logger.warning(
+            "sklearn.frozen.FrozenEstimator not available; using cv='prefit' fallback."
+        )
+        calibrator = CalibratedClassifierCV(model, method=method, cv="prefit")
     calibrator.fit(X_cal, y_cal)
     return calibrator
 

@@ -16,6 +16,7 @@ A framework for combining multiple molecular docking and binding affinity predic
 ## Table of Contents
 
 - [Installation](#installation)
+- [Current Quickstart](#current-quickstart)
 - [Quick Start](#quick-start)
 - [Project Structure](#project-structure)
 - [Usage](#usage)
@@ -50,6 +51,24 @@ Optional (for structure prediction):
 - AutoDock Vina
 - Boltz-2 (for AI structure prediction)
 - meeko>=0.7.1 (for PDBQT conversion)
+
+## Current Quickstart
+
+For current reproducible workflows (CWRA CV, table export, PU-conformal, molecule panels), use:
+
+- `docs/GITHUB_QUICKSTART.md`
+
+Core entrypoints:
+- `cwra_cv_v2.py`
+- `create_cwra_tables.py`
+- `run_pu_conformal_pipeline.py`
+- `make_mol_panel.py`
+
+Environment smoke test:
+
+```bash
+python scripts/smoke_check.py
+```
 
 ## Quick Start
 
