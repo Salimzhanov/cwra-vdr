@@ -1,0 +1,12 @@
+TO DO
+- recalculate pdb files for Boltz, Vina (abylay)
+- check overlap figure: adjust to filtered (abylay)
+- update figures 5,6,7 (ferdinand)
+- update discussion (siamac)
+- review supplmentary (siamac)
+- final paper review (siamac, ferdinand, abylay)
+- remove TransVAE
+
+DONE
+- combine abylay's new figures, into 'stats' figure (siamac) - done
+- update figure 2 + text (legend +text: ferdinand) - done
