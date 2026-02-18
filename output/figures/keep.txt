@@ -1,0 +1,13 @@
+Fig01
+
+combine 4a/b/c/d into one
+
+fig 6: split only into 4 generative models
+
+Fig 8a/b: suppl = fig 15 combo (update axis labels according to 8a/b)
+
+Fig. 12b suppl
+
+Fig. 13a/b - remove molecules from multiple sources in a)
+     - legend in bad place
+

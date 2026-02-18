@@ -1,4 +1,4 @@
-(cwra-vdr) isabella@gaia:~/fazli/code/cwra-vdr$ python cwra_cv_v2.py -i data/composed_modalities_with_rdkit.csv \
+(cwra-vdr) isabella@gaia:~/fazli/code/cwra-vdr$ python cwra2.py -i data/composed_modalities_with_rdkit.csv \
 -o results/v0_baseline --norm minmax  --max-mw 600 --max-rotb 15 --objective default --include-boltz-confidence \
 --include-unimol --cv-folds 5 --seed 42 --latex --extra-metrics  --bedroc --bedroc-alpha 80.0
 
@@ -123,7 +123,7 @@ Random (mean of 100)       10.49 +/- 2.82  5.74 +/- 0.79   4.28 +/- 0.42  2.74 +
 
 
 
-(cwra-vdr) isabella@gaia:~/fazli/code/cwra-vdr$ python run_pu_conformal_pipeline.py \
+(cwra-vdr) isabella@gaia:~/fazli/code/cwra-vdr$ python pu_conformal.py \
   --input data/composed_modalities_with_rdkit.csv \
   --outdir results/pu_conformal_v2 \
   --score-source cwra \
