@@ -1,0 +1,24 @@
+\begin{table}[htbp!]
+\centering
+\caption{Fusion weights learned by CWRA and average rank position of active compounds (5-fold CV, mean $\pm$ std).}
+\label{tab:fusion_weights_meanrank}
+\small
+\begin{tabular}{lrr}
+\toprule
+Method & Weight & Mean Rank \\
+\midrule
+GraphDTA $K_{d}$ & 0.037$\pm$0.008 & 6523$\pm$433 \\
+GraphDTA $K_{i}$ & 0.030$\pm$0.001 & 12335$\pm$374 \\
+GraphDTA $IC_{50}$ & 0.242$\pm$0.002 & 4682$\pm$623 \\
+MLTLE $pK_d$ & 0.030$\pm$0.000 & 5881$\pm$380 \\
+TankBind & 0.069$\pm$0.041 & 9632$\pm$91 \\
+DrugBAN & 0.101$\pm$0.014 & 6577$\pm$236 \\
+MolTrans & 0.042$\pm$0.010 & 10085$\pm$638 \\
+AutoDock Vina & 0.206$\pm$0.036 & 4425$\pm$331 \\
+Boltz-2 affinity & 0.053$\pm$0.025 & 2217$\pm$379 \\
+Boltz-2 confidence & 0.155$\pm$0.044 & 718$\pm$42 \\
+UniMol & 0.034$\pm$0.004 & 4801$\pm$347 \\
+CWRA & - & 1573$\pm$682 \\
+\bottomrule
+\end{tabular}
+\end{table}

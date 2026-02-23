@@ -1,0 +1,3 @@
+[RDKit invalid]
+C=n1c(C(=O)NCCCN(CC)CC)ccc1C(CC)(CC)c1ccc(OCC(=O)C(C)(C)C)c(C)c1
+C=[Si](C)(CC(O)(CC)C(F)(F)F)c1ccc(OCC(O)C(C)(C)C)c(C)c1

@@ -1,9 +1,0 @@
-{
-  "n_unlabeled_total": 11343,
-  "n_pos": 366,
-  "n_unlabeled_after_simfilter": 4089,
-  "n_selected": 2727,
-  "sim_max": 0.35,
-  "n_cal_requested": 2727,
-  "seed": 42
-}

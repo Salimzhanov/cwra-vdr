@@ -225,6 +225,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Drug-likeness pre-filter: min QED score for unlabeled compounds. "
              "Set to 0 to disable. Default 0 (off).",
     )
+    parser.add_argument(
+        "--include-newref-137-as-active",
+        action="store_true",
+        default=False,
+        help="Treat source 'newRef_137' as active across PU steps (A/B/D).",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -248,7 +254,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "calib_frac=%.3f clip=%.1f mode=%s q=%.3f alpha=%.3f "
         "select_mode=%s pval_cutoff=%s calib_negatives=%s calib_neg_n=%d calib_neg_sim_max=%s "
         "score_source=%s cwra_weights_csv=%s cwra_norm=%s top_k=%d pval_type=%s "
-        "max_mw=%.0f max_rotb=%d min_qed=%.2f",
+        "max_mw=%.0f max_rotb=%d min_qed=%.2f include_newref_137_as_active=%s",
         args.seed,
         args.neg_pos_ratio,
         args.bottom_q,
@@ -271,6 +277,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         args.max_mw,
         args.max_rotb,
         args.min_qed,
+        args.include_newref_137_as_active,
     )
 
     try:
@@ -291,6 +298,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             "--include-boltz-confidence",
             "--include-unimol",
         ]
+        if args.include_newref_137_as_active:
+            step_a_args += ["--include-newref-137-as-active"]
         stepA_main(step_a_args)
     except Exception as exc:
         logger.error("Step A failed: %s", exc)
@@ -338,27 +347,30 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "--norm",
                 args.cwra_norm,
             ]
+            if args.include_newref_137_as_active:
+                cwra_args += ["--include-newref-137-as-active"]
             if args.cwra_weights_csv:
                 cwra_args += ["--weights-csv", args.cwra_weights_csv]
             stepB_cwra_main(cwra_args)
         else:
             model_type = "gbt" if args.score_source == "meta_gbt" else "lr"
-            stepB_main(
-                [
-                    "--input",
-                    args.input,
-                    "--pu-labels",
-                    str(dir_a / "pu_labels.csv"),
-                    "--output",
-                    str(dir_b),
-                    "--seed",
-                    str(args.seed),
-                    "--calib-frac",
-                    str(args.calib_frac),
-                    "--model-type",
-                    model_type,
-                ]
-            )
+            step_b_args = [
+                "--input",
+                args.input,
+                "--pu-labels",
+                str(dir_a / "pu_labels.csv"),
+                "--output",
+                str(dir_b),
+                "--seed",
+                str(args.seed),
+                "--calib-frac",
+                str(args.calib_frac),
+                "--model-type",
+                model_type,
+            ]
+            if args.include_newref_137_as_active:
+                step_b_args += ["--include-newref-137-as-active"]
+            stepB_main(step_b_args)
     except Exception as exc:
         logger.error("Step B failed: %s", exc)
         return 1
@@ -547,6 +559,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "--target",
                 "unlabeled",
             ]
+            + (["--include-newref-137-as-active"] if args.include_newref_137_as_active else [])
         )
     except Exception as exc:
         logger.error("Step D failed: %s", exc)

@@ -11,7 +11,7 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 
-CUTS = [1, 5, 10, 20, 30]
+CUTS = [1, 2.5, 5, 10, 20]
 
 INDIV_ORDER = [
     "GraphDTA_Kd",
@@ -101,6 +101,25 @@ def _best_second(df: pd.DataFrame, col: str) -> Tuple[int, int]:
     return best, second
 
 
+def _detect_cuts_from_folds(*dfs: pd.DataFrame) -> List[float]:
+    found = set()
+    for df in dfs:
+        for col in df.columns:
+            m = re.match(r"^test_ef_([0-9.]+)$", str(col))
+            if m:
+                try:
+                    found.add(float(m.group(1)))
+                except ValueError:
+                    continue
+    if not found:
+        return CUTS
+    preferred = [1.0, 2.5, 5.0, 10.0, 20.0, 30.0]
+    cuts = [c for c in preferred if c in found]
+    if cuts:
+        return cuts
+    return sorted(found)
+
+
 def _fmt_pm(mean: float, std: float, digits: int, as_int: bool = False) -> str:
     if as_int:
         if np.isfinite(std):
@@ -109,6 +128,14 @@ def _fmt_pm(mean: float, std: float, digits: int, as_int: bool = False) -> str:
     if np.isfinite(std):
         return f"{mean:.{digits}f}$\\pm${std:.{digits}f}"
     return f"{mean:.{digits}f}"
+
+
+def _fmt_cut(c: float) -> str:
+    return f"{int(c)}" if float(c).is_integer() else f"{c:g}"
+
+
+def _cut_key(c: float) -> str:
+    return _fmt_cut(c)
 
 
 def _decorate(text: str, idx: int, best: int, second: int) -> str:
@@ -125,14 +152,15 @@ def _aggregate_metrics(df: pd.DataFrame, key_col: str, key_to_label: dict | None
         label = key_to_label.get(key, key) if key_to_label is not None else key
         row = {"method": label}
         for c in CUTS:
-            ef_col = f"test_ef_{c}"
-            hits_col = f"test_hits_{c}"
+            ck = _cut_key(c)
+            ef_col = f"test_ef_{ck}"
+            hits_col = f"test_hits_{ck}"
             if ef_col in grp.columns:
-                row[f"ef_{c}"] = grp[ef_col].mean()
-                row[f"ef_{c}_std"] = grp[ef_col].std(ddof=0)
+                row[f"ef_{ck}"] = grp[ef_col].mean()
+                row[f"ef_{ck}_std"] = grp[ef_col].std(ddof=0)
             if hits_col in grp.columns:
-                row[f"hits_{c}"] = grp[hits_col].mean()
-                row[f"hits_{c}_std"] = grp[hits_col].std(ddof=0)
+                row[f"hits_{ck}"] = grp[hits_col].mean()
+                row[f"hits_{ck}_std"] = grp[hits_col].std(ddof=0)
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -202,8 +230,21 @@ def _load_run_metadata(
 
 
 def _build_performance_table(df: pd.DataFrame, caption: str, label: str, wide: bool = True) -> str:
-    metric_cols = [f"ef_{c}" for c in CUTS] + [f"hits_{c}" for c in CUTS]
+    table_cuts = [
+        c for c in CUTS
+        if (f"ef_{_cut_key(c)}" in df.columns or f"hits_{_cut_key(c)}" in df.columns)
+    ]
+    if not table_cuts:
+        table_cuts = CUTS
+    metric_cols = [
+        col for col in (
+            [f"ef_{_cut_key(c)}" for c in table_cuts] +
+            [f"hits_{_cut_key(c)}" for c in table_cuts]
+        )
+        if col in df.columns
+    ]
     best_second = {col: _best_second(df, col) for col in metric_cols}
+    n_cuts = len(table_cuts)
 
     env = "table*" if wide else "table"
     lines: List[str] = []
@@ -212,24 +253,43 @@ def _build_performance_table(df: pd.DataFrame, caption: str, label: str, wide: b
     lines.append(rf"\caption{{{caption}}}")
     lines.append(rf"\label{{{label}}}")
     lines.append(r"\small")
-    lines.append(r"\begin{tabular}{lrrrrr|rrrrr}")
+    lines.append(rf"\begin{{tabular}}{{l{'r' * n_cuts}|{'r' * n_cuts}}}")
     lines.append(r"\toprule")
-    lines.append(r"& \multicolumn{5}{c|}{Enrichment Factor (EF)} & \multicolumn{5}{c}{Hits} \\")
-    lines.append(r"Method & @1\% & @5\% & @10\% & @20\% & @30\% & @1\% & @5\% & @10\% & @20\% & @30\% \\")
+    lines.append(
+        rf"& \multicolumn{{{n_cuts}}}{{c|}}{{Enrichment Factor (EF)}} & "
+        rf"\multicolumn{{{n_cuts}}}{{c}}{{Hits}} \\"
+    )
+    ef_hdr = " & ".join([f"@{_fmt_cut(c)}\\%" for c in table_cuts])
+    hits_hdr = " & ".join([f"@{_fmt_cut(c)}\\%" for c in table_cuts])
+    lines.append(f"Method & {ef_hdr} & {hits_hdr} \\\\")
     lines.append(r"\midrule")
 
     for idx, row in df.iterrows():
         name = NAME_MAP.get(row["method"], row["method"])
         ef_cells = []
-        for c in CUTS:
-            txt = _fmt_pm(row[f"ef_{c}"], row.get(f"ef_{c}_std", np.nan), 2, as_int=False)
-            b, s = best_second[f"ef_{c}"]
-            ef_cells.append(_decorate(txt, idx, b, s))
+        for c in table_cuts:
+            ck = _cut_key(c)
+            ef_col = f"ef_{ck}"
+            if ef_col in df.columns:
+                txt = _fmt_pm(row[ef_col], row.get(f"{ef_col}_std", np.nan), 2, as_int=False)
+                if ef_col in best_second:
+                    b, s = best_second[ef_col]
+                    txt = _decorate(txt, idx, b, s)
+            else:
+                txt = "N/A"
+            ef_cells.append(txt)
         hit_cells = []
-        for c in CUTS:
-            txt = _fmt_pm(row[f"hits_{c}"], row.get(f"hits_{c}_std", np.nan), 0, as_int=True)
-            b, s = best_second[f"hits_{c}"]
-            hit_cells.append(_decorate(txt, idx, b, s))
+        for c in table_cuts:
+            ck = _cut_key(c)
+            hits_col = f"hits_{ck}"
+            if hits_col in df.columns:
+                txt = _fmt_pm(row[hits_col], row.get(f"{hits_col}_std", np.nan), 0, as_int=True)
+                if hits_col in best_second:
+                    b, s = best_second[hits_col]
+                    txt = _decorate(txt, idx, b, s)
+            else:
+                txt = "N/A"
+            hit_cells.append(txt)
         lines.append(f"{name} & {' & '.join(ef_cells + hit_cells)} \\\\")
 
     lines.append(r"\bottomrule")
@@ -354,6 +414,9 @@ def main() -> int:
     weights_df = pd.read_csv(weights_path)
     mean_rank_df = _load_mean_rank(results_dir, prefix)
 
+    global CUTS
+    CUTS = _detect_cuts_from_folds(indiv_df, baseline_df, methods_df)
+
     indiv_agg = _aggregate_metrics(indiv_df, "modality")
     methods_agg = _aggregate_metrics(methods_df, "method", METHOD_LABELS)
     baseline_agg = _aggregate_metrics(baseline_df, "baseline", BASELINE_LABELS)
@@ -399,7 +462,7 @@ def main() -> int:
     if "n_total" in meta:
         ks = [max(1, int(meta["n_total"] * c / 100)) for c in CUTS]
         summary_bits.append(
-            "top-k cutoffs: " + ", ".join([f"@{c}%={k}" for c, k in zip(CUTS, ks)])
+            "top-k cutoffs: " + ", ".join([f"@{_fmt_cut(c)}%={k}" for c, k in zip(CUTS, ks)])
         )
     summary_line = "; ".join(summary_bits) if summary_bits else "5-fold CV"
 

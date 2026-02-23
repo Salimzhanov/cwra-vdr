@@ -17,6 +17,7 @@ import argparse
 import json
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -176,13 +177,19 @@ def build_variants() -> list[Variant]:
 
 INPUT_CSV = "data/composed_modalities_with_rdkit.csv"
 RESULTS_ROOT = Path("results")
+DEFAULT_UNIMOL_EMBEDDINGS = "data/unimol_embeddings.npz"
 
 
-def build_cwra_cmd(v: Variant) -> list[str]:
-    """Build the cwra_cv_v2.py command for a variant."""
+def build_cwra_cmd(
+    v: Variant,
+    *,
+    fold_honest_unimol: bool = True,
+    unimol_embeddings: str = DEFAULT_UNIMOL_EMBEDDINGS,
+) -> list[str]:
+    """Build the cwra.py command for a variant."""
     outdir = RESULTS_ROOT / v.folder / "cwra"
     cmd = [
-        sys.executable, "cwra_cv_v2.py",
+        sys.executable, "cwra.py",
         "-i", INPUT_CSV,
         "-o", str(outdir),
         "--norm", v.norm,
@@ -206,19 +213,25 @@ def build_cwra_cmd(v: Variant) -> list[str]:
         cmd += ["--drop-modalities"] + v.drop_modalities
     if v.auto_prune > 0:
         cmd += ["--auto-prune", str(v.auto_prune)]
+    if fold_honest_unimol:
+        cmd += [
+            "--fold-honest-unimol",
+            "--unimol-embeddings", unimol_embeddings,
+        ]
     cmd += v.extra_cwra_args
 
     return cmd
 
 
 def build_pipeline_cmd(v: Variant) -> list[str]:
-    """Build the run_pu_conformal_pipeline.py command for a variant."""
+    """Build the conformal pipeline command for a variant."""
     cwra_dir = RESULTS_ROOT / v.folder / "cwra"
     pipe_dir = RESULTS_ROOT / v.folder / "pipeline"
     weights_csv = cwra_dir / "cwra_cv_mean_weights.csv"
+    conformal_script = "run_conformal.py" if Path("run_conformal.py").exists() else "pu_conformal.py"
 
     cmd = [
-        sys.executable, "run_pu_conformal_pipeline.py",
+        sys.executable, conformal_script,
         "--input", INPUT_CSV,
         "--outdir", str(pipe_dir),
         "--score-source", "cwra",
@@ -260,7 +273,7 @@ def build_panel_cmd(v: Variant, n: int = 50, per_row: int = 5, cell: int = 320) 
 # ============================================================================
 
 def run_cmd(cmd: list[str], label: str, dry_run: bool = False, log_dir: Optional[Path] = None) -> bool:
-    """Run a command, optionally saving stdout/stderr to a log file."""
+    """Run a command with live stdout/stderr streaming and optional full log capture."""
     cmd_str = " \\\n    ".join(cmd)
     print(f"\n{'='*72}")
     print(f"  {label}")
@@ -274,27 +287,60 @@ def run_cmd(cmd: list[str], label: str, dry_run: bool = False, log_dir: Optional
     log_path = log_dir / f"{label.replace(' ', '_')}.log" if log_dir else None
 
     t0 = time.time()
+    proc = None
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
+        exec_cmd = list(cmd)
+        if exec_cmd and Path(exec_cmd[0]).name.startswith("python") and "-u" not in exec_cmd:
+            exec_cmd.insert(1, "-u")
+
+        proc = subprocess.Popen(
+            exec_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=3600,  # 1 hour max per step
+            bufsize=1,
         )
+
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+
+        def _stream(pipe, sink: list[str], prefix: str = ""):
+            try:
+                for line in iter(pipe.readline, ""):
+                    sink.append(line)
+                    print(f"  {prefix}{line.rstrip()}")
+            finally:
+                pipe.close()
+
+        t_out = threading.Thread(
+            target=_stream, args=(proc.stdout, stdout_chunks, ""), daemon=True
+        )
+        t_err = threading.Thread(
+            target=_stream, args=(proc.stderr, stderr_chunks, "STDERR: "), daemon=True
+        )
+        t_out.start()
+        t_err.start()
+
+        timed_out = False
+        try:
+            returncode = proc.wait(timeout=3600)  # 1 hour max per step
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            proc.kill()
+            returncode = proc.wait()
+
+        t_out.join()
+        t_err.join()
+
+        stdout_text = "".join(stdout_chunks)
+        stderr_text = "".join(stderr_chunks)
         elapsed = time.time() - t0
 
-        # Print last 30 lines of stdout
-        lines = result.stdout.strip().split("\n")
-        if len(lines) > 30:
-            print(f"  ... ({len(lines)-30} lines omitted)")
-        for line in lines[-30:]:
-            print(f"  {line}")
+        if timed_out:
+            print("  *** TIMEOUT (>3600s) ***")
 
-        if result.returncode != 0:
-            print(f"\n  *** FAILED (exit code {result.returncode}) ***")
-            if result.stderr:
-                for line in result.stderr.strip().split("\n")[-20:]:
-                    print(f"  STDERR: {line}")
+        if returncode != 0 and not timed_out:
+            print(f"\n  *** FAILED (exit code {returncode}) ***")
 
         print(f"\n  Elapsed: {elapsed:.1f}s")
 
@@ -303,16 +349,21 @@ def run_cmd(cmd: list[str], label: str, dry_run: bool = False, log_dir: Optional
             log_path.parent.mkdir(parents=True, exist_ok=True)
             with open(log_path, "w") as f:
                 f.write(f"COMMAND: {' '.join(cmd)}\n")
-                f.write(f"EXIT CODE: {result.returncode}\n")
+                f.write(f"EXIT CODE: {returncode}\n")
                 f.write(f"ELAPSED: {elapsed:.1f}s\n")
-                f.write(f"\n--- STDOUT ---\n{result.stdout}\n")
-                f.write(f"\n--- STDERR ---\n{result.stderr}\n")
+                f.write(f"\n--- STDOUT ---\n{stdout_text}\n")
+                f.write(f"\n--- STDERR ---\n{stderr_text}\n")
 
-        return result.returncode == 0
+        return (returncode == 0) and (not timed_out)
 
-    except subprocess.TimeoutExpired:
-        print("  *** TIMEOUT (>3600s) ***")
-        return False
+    except KeyboardInterrupt:
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        raise
     except Exception as e:
         print(f"  *** ERROR: {e} ***")
         return False
@@ -330,12 +381,35 @@ def main():
                         help="Skip CV, run pipeline only (CV results must exist)")
     parser.add_argument("--results-root", type=str, default="results",
                         help="Root directory for results (default: results)")
+    parser.add_argument(
+        "--no-fold-honest-unimol",
+        action="store_true",
+        help="Disable fold-honest Uni-Mol recomputation (enabled by default).",
+    )
+    parser.add_argument(
+        "--unimol-embeddings",
+        type=str,
+        default=DEFAULT_UNIMOL_EMBEDDINGS,
+        help=f"Path to Uni-Mol embeddings .npz (default: {DEFAULT_UNIMOL_EMBEDDINGS}).",
+    )
     args = parser.parse_args()
 
     global RESULTS_ROOT
     RESULTS_ROOT = Path(args.results_root)
 
     variants = build_variants()
+    fold_honest_unimol = not args.no_fold_honest_unimol
+
+    if fold_honest_unimol and not args.pipeline_only:
+        emb_path = Path(args.unimol_embeddings)
+        if not emb_path.exists():
+            print(
+                "ERROR: Fold-honest Uni-Mol is enabled, but embeddings file is missing:\n"
+                f"  {emb_path}\n"
+                "Generate it first (e.g. with unimol_embeddings.py), or run with "
+                "--no-fold-honest-unimol."
+            )
+            sys.exit(1)
 
     if args.only:
         tags = set(args.only)
@@ -350,6 +424,9 @@ def main():
     print(f"  {len(variants)} variants to run")
     print(f"  Results root: {RESULTS_ROOT}")
     print(f"  Pipeline: {'skip' if args.skip_pipeline else 'pipeline-only' if args.pipeline_only else 'enabled'}")
+    print(f"  Fold-honest Uni-Mol: {'enabled' if fold_honest_unimol else 'disabled'}")
+    if fold_honest_unimol:
+        print(f"  Uni-Mol embeddings: {args.unimol_embeddings}")
     print(f"{'#'*72}")
 
     for v in variants:
@@ -378,6 +455,8 @@ def main():
             "drop_modalities": v.drop_modalities,
             "auto_prune": v.auto_prune,
             "run_pipeline": v.run_pipeline,
+            "fold_honest_unimol": fold_honest_unimol,
+            "unimol_embeddings": args.unimol_embeddings if fold_honest_unimol else None,
         })
     manifest_path = RESULTS_ROOT / "ablation_manifest.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -389,52 +468,62 @@ def main():
     results_summary = []
     total_t0 = time.time()
 
-    for v in variants:
-        v_t0 = time.time()
-        cv_ok = True
-        pipe_ok = True
-        panel_ok = True
+    interrupted = False
+    try:
+        for v in variants:
+            v_t0 = time.time()
+            cv_ok = True
+            pipe_ok = True
+            panel_ok = True
 
-        # --- CWRA CV ---
-        if not args.pipeline_only:
-            cwra_cmd = build_cwra_cmd(v)
-            cv_ok = run_cmd(cwra_cmd, f"{v.tag}_cwra", args.dry_run, log_dir)
+            # --- CWRA CV ---
+            if not args.pipeline_only:
+                cwra_cmd = build_cwra_cmd(
+                    v,
+                    fold_honest_unimol=fold_honest_unimol,
+                    unimol_embeddings=args.unimol_embeddings,
+                )
+                cv_ok = run_cmd(cwra_cmd, f"{v.tag}_cwra", args.dry_run, log_dir)
 
-        # --- Pipeline ---
-        if not args.skip_pipeline and (cv_ok or args.pipeline_only):
-            weights_csv = RESULTS_ROOT / v.folder / "cwra" / "cwra_cv_mean_weights.csv"
-            if args.dry_run or weights_csv.exists():
-                pipe_cmd = build_pipeline_cmd(v)
-                pipe_ok = run_cmd(pipe_cmd, f"{v.tag}_pipeline", args.dry_run, log_dir)
-            else:
-                print(f"\n  [{v.tag}] Skipping pipeline: {weights_csv} not found")
-                pipe_ok = False
+            # --- Pipeline ---
+            if not args.skip_pipeline and (cv_ok or args.pipeline_only):
+                weights_csv = RESULTS_ROOT / v.folder / "cwra" / "cwra_cv_mean_weights.csv"
+                if args.dry_run or weights_csv.exists():
+                    pipe_cmd = build_pipeline_cmd(v)
+                    pipe_ok = run_cmd(pipe_cmd, f"{v.tag}_pipeline", args.dry_run, log_dir)
+                else:
+                    print(f"\n  [{v.tag}] Skipping pipeline: {weights_csv} not found")
+                    pipe_ok = False
 
-        # --- Molecule panel ---
-        if not args.skip_pipeline and pipe_ok:
-            final_csv = RESULTS_ROOT / v.folder / "pipeline" / "E" / "final_selected.csv"
-            if args.dry_run or final_csv.exists():
-                panel_cmd = build_panel_cmd(v)
-                panel_ok = run_cmd(panel_cmd, f"{v.tag}_panel", args.dry_run, log_dir)
-            else:
-                print(f"\n  [{v.tag}] Skipping panel: {final_csv} not found")
-                panel_ok = False
+            # --- Molecule panel ---
+            if not args.skip_pipeline and pipe_ok:
+                final_csv = RESULTS_ROOT / v.folder / "pipeline" / "E" / "final_selected.csv"
+                if args.dry_run or final_csv.exists():
+                    panel_cmd = build_panel_cmd(v)
+                    panel_ok = run_cmd(panel_cmd, f"{v.tag}_panel", args.dry_run, log_dir)
+                else:
+                    print(f"\n  [{v.tag}] Skipping panel: {final_csv} not found")
+                    panel_ok = False
 
-        v_elapsed = time.time() - v_t0
-        results_summary.append({
-            "tag": v.tag,
-            "label": v.label,
-            "cv_ok": cv_ok,
-            "pipeline_ok": pipe_ok if not args.skip_pipeline else None,
-            "panel_ok": panel_ok if not args.skip_pipeline else None,
-            "elapsed_s": round(v_elapsed, 1),
-        })
+            v_elapsed = time.time() - v_t0
+            results_summary.append({
+                "tag": v.tag,
+                "label": v.label,
+                "cv_ok": cv_ok,
+                "pipeline_ok": pipe_ok if not args.skip_pipeline else None,
+                "panel_ok": panel_ok if not args.skip_pipeline else None,
+                "elapsed_s": round(v_elapsed, 1),
+            })
+    except KeyboardInterrupt:
+        interrupted = True
+        print("\n\n  Interrupted by user. Stopping remaining variants.")
 
     total_elapsed = time.time() - total_t0
 
     # Final summary
     print(f"\n\n{'#'*72}")
-    print(f"  ABLATION COMPLETE — {total_elapsed:.0f}s total")
+    status = "ABLATION INTERRUPTED" if interrupted else "ABLATION COMPLETE"
+    print(f"  {status} — {total_elapsed:.0f}s total")
     print(f"{'#'*72}")
     print(f"  {'Tag':<6} {'CV':>4} {'Pipe':>6} {'Panel':>6} {'Time':>8}  Label")
     print(f"  {'-'*6} {'-'*4} {'-'*6} {'-'*6} {'-'*8}  {'-'*40}")

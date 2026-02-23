@@ -1,0 +1,30 @@
+\begin{table*}[htbp!]
+\centering
+\caption{Extended virtual screening performance of individual scoring methods and fusion baselines on the VDR ligand discovery task (mean $\\pm$ std). N=14,902 compounds (503 actives); 5-fold CV; split seed=42; drug-likeness pre-filter removed 1,294/16,196 compounds; top-k cutoffs: @1%=149, @2.5%=372, @5%=745, @10%=1490, @20%=2980. EF: Enrichment Factor; Hits: number of active compounds retrieved. \textbf{Bold}: best; \underline{underlined}: second best.}
+\label{tab:fusion_performance_extended}
+\small
+\begin{tabular}{lrrrrr|rrrrr}
+\toprule
+& \multicolumn{5}{c|}{Enrichment Factor (EF)} & \multicolumn{5}{c}{Hits} \\
+Method & @1\% & @2.5\% & @5\% & @10\% & @20\% & @1\% & @2.5\% & @5\% & @10\% & @20\% \\
+\midrule
+GraphDTA $K_{d}$ & 10.79$\pm$2.11 & 4.43$\pm$0.86 & 2.58$\pm$0.39 & 1.79$\pm$0.18 & 1.30$\pm$0.11 & 8$\pm$2 & 8$\pm$2 & 10$\pm$1 & 14$\pm$1 & 20$\pm$2 \\
+GraphDTA $K_{i}$ & 0.00$\pm$0.00 & 0.00$\pm$0.00 & 0.21$\pm$0.26 & 0.26$\pm$0.14 & 0.29$\pm$0.12 & 0$\pm$0 & 0$\pm$0 & 1$\pm$1 & 2$\pm$1 & 4$\pm$2 \\
+GraphDTA $IC_{50}$ & 16.32$\pm$3.96 & 12.23$\pm$1.35 & 8.32$\pm$0.76 & 4.61$\pm$0.55 & 2.72$\pm$0.24 & 12$\pm$3 & 23$\pm$3 & 32$\pm$3 & 35$\pm$4 & 41$\pm$4 \\
+MLTLE $pK_d$ & 2.90$\pm$1.93 & 1.90$\pm$0.54 & 1.58$\pm$0.44 & 1.74$\pm$0.24 & 1.41$\pm$0.14 & 2$\pm$1 & 4$\pm$1 & 6$\pm$2 & 13$\pm$2 & 21$\pm$2 \\
+TankBind & 0.26$\pm$0.53 & 0.53$\pm$0.58 & 0.32$\pm$0.26 & 0.16$\pm$0.13 & 0.22$\pm$0.15 & 0$\pm$0 & 1$\pm$1 & 1$\pm$1 & 1$\pm$1 & 3$\pm$2 \\
+DrugBAN & 3.16$\pm$1.05 & 2.00$\pm$0.70 & 1.68$\pm$0.49 & 1.34$\pm$0.21 & 1.41$\pm$0.17 & 2$\pm$1 & 4$\pm$1 & 6$\pm$2 & 10$\pm$2 & 21$\pm$3 \\
+MolTrans & 0.26$\pm$0.53 & 0.42$\pm$0.21 & 0.63$\pm$0.27 & 0.53$\pm$0.30 & 0.58$\pm$0.21 & 0$\pm$0 & 1$\pm$0 & 2$\pm$1 & 4$\pm$2 & 9$\pm$3 \\
+AutoDock Vina & 3.16$\pm$1.05 & 1.48$\pm$0.61 & 1.74$\pm$0.59 & 2.08$\pm$0.23 & 1.88$\pm$0.23 & 2$\pm$1 & 3$\pm$1 & 7$\pm$2 & 16$\pm$2 & 29$\pm$3 \\
+Boltz-2 affinity & 1.05$\pm$0.98 & 4.43$\pm$1.27 & 5.47$\pm$0.99 & 5.42$\pm$0.74 & 4.04$\pm$0.29 & 1$\pm$1 & 8$\pm$2 & 21$\pm$4 & 41$\pm$6 & 61$\pm$4 \\
+Boltz-2 confidence & 12.90$\pm$3.16 & 11.81$\pm$1.51 & \textbf{11.05$\pm$0.78} & \textbf{9.24$\pm$0.26} & \textbf{5.00$\pm$0.00} & 10$\pm$2 & 22$\pm$3 & \textbf{42$\pm$3} & \textbf{70$\pm$2} & \textbf{76$\pm$0} \\
+UniMol & 2.90$\pm$1.53 & 3.90$\pm$1.32 & 3.00$\pm$0.83 & 2.42$\pm$0.40 & 1.82$\pm$0.24 & 2$\pm$1 & 7$\pm$2 & 11$\pm$3 & 18$\pm$3 & 28$\pm$4 \\
+DE Fair (BEDROC) & \textbf{21.32$\pm$6.41} & 14.13$\pm$2.34 & 9.47$\pm$0.60 & 7.13$\pm$0.72 & 4.18$\pm$0.49 & \textbf{16$\pm$5} & 27$\pm$4 & 36$\pm$2 & 54$\pm$5 & 64$\pm$7 \\
+DE Unconstrained (BEDROC) & 20.53$\pm$5.43 & \textbf{14.34$\pm$2.17} & \underline{9.90$\pm$0.66} & \underline{7.40$\pm$0.37} & \underline{4.82$\pm$0.24} & 16$\pm$4 & \textbf{27$\pm$4} & \underline{38$\pm$2} & \underline{56$\pm$3} & \underline{73$\pm$4} \\
+DE Entropy (BEDROC) & 19.74$\pm$5.13 & \underline{14.23$\pm$1.94} & 9.74$\pm$0.33 & 6.95$\pm$0.33 & 4.03$\pm$0.12 & 15$\pm$4 & \underline{27$\pm$4} & 37$\pm$1 & 53$\pm$2 & 61$\pm$2 \\
+Equal-weight & 10.79$\pm$2.81 & 7.80$\pm$1.22 & 6.32$\pm$1.30 & 5.18$\pm$0.52 & 3.21$\pm$0.15 & 8$\pm$2 & 15$\pm$2 & 24$\pm$5 & 39$\pm$4 & 49$\pm$2 \\
+Random (mean of 100) & 8.61$\pm$1.38 & 6.34$\pm$1.08 & 5.07$\pm$0.64 & 4.36$\pm$0.32 & 2.85$\pm$0.14 & 6$\pm$1 & 12$\pm$2 & 19$\pm$2 & 33$\pm$2 & 43$\pm$2 \\
+CWRA & \underline{21.32$\pm$6.41} & 14.13$\pm$2.34 & 9.47$\pm$0.60 & 7.13$\pm$0.72 & 4.18$\pm$0.49 & \underline{16$\pm$5} & 27$\pm$4 & 36$\pm$2 & 54$\pm$5 & 64$\pm$7 \\
+\bottomrule
+\end{tabular}
+\end{table*}

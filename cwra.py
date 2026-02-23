@@ -40,6 +40,7 @@ OBJECTIVE_PRESETS = {
     "top_heavy":  {0.25: 10, 0.5: 5, 1: 2},
     "balanced":   {1: 1, 5: 1, 10: 1, 20: 1},
 }
+CUTOFFS = [0.5, 1, 2.5, 5, 10, 20]  # CHANGE 4
 
 def _print_table(title: str, headers: List[str], rows: List[List[str]]) -> None:
     if not rows:
@@ -173,6 +174,7 @@ class CWRAConfig:
     de_maxiter: int = 1000  # CHANGE 6
     de_seed: int = 42
     de_n_seeds: int = 1  # CHANGE 6
+    de_workers: int = 1  # DE parallel workers; use -1 for all CPUs
 
     n_random_trials: int = 100
 
@@ -182,6 +184,8 @@ class CWRAConfig:
     drop_modalities: List[str] = field(default_factory=list)  # CHANGE 5
     auto_prune_threshold: float = 0.0  # CHANGE 5
     strict_cv: bool = False  # CHANGE 7
+    fold_honest_unimol: bool = False  # Fold-honest Uni-Mol in CV only
+    unimol_embeddings_path: Optional[str] = None  # .npz with smiles + embeddings
     report_extra_metrics: bool = True  # CHANGE 8
     report_bedroc_alpha: float = 20.0  # CHANGE 8
 
@@ -194,6 +198,8 @@ class CWRAConfig:
     def __post_init__(self):  # CHANGE 4
         if self.objective_preset in OBJECTIVE_PRESETS:
             self.cutoff_weights = OBJECTIVE_PRESETS[self.objective_preset]
+        if self.de_workers == 0 or self.de_workers < -1:
+            raise ValueError("de_workers must be -1 (all CPUs) or a positive integer.")
 
 
 # =============================================================================
@@ -316,6 +322,112 @@ def normalize_modalities_cv(  # CHANGE 7
     return np.column_stack(norm_data), available_cols, mod_names
 
 
+def _normalize_smiles_key(value) -> str:
+    """Normalize SMILES key representation for robust dict lookups."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value)
+
+
+def load_unimol_embeddings_npz(path: str, df: pd.DataFrame, smiles_col: str) -> np.ndarray:
+    """
+    Load Uni-Mol embeddings from .npz and align to dataframe rows by SMILES.
+
+    Expected .npz keys:
+      - smiles: array-like of shape (N,)
+      - emb:    array-like of shape (N, D)
+    """
+    emb_path = Path(path)
+    if not emb_path.exists():
+        raise FileNotFoundError(
+            f"Uni-Mol embeddings file not found: {emb_path}. "
+            "Provide --unimol-embeddings path to a valid .npz file."
+        )
+    if smiles_col not in df.columns:
+        raise ValueError(
+            f"SMILES column '{smiles_col}' not found in dataframe. "
+            f"Available columns include: {list(df.columns)[:12]}..."
+        )
+
+    try:
+        npz = np.load(emb_path, allow_pickle=True)
+    except Exception as exc:
+        raise ValueError(f"Failed to load Uni-Mol embeddings npz: {emb_path}") from exc
+
+    if "smiles" not in npz or "emb" not in npz:
+        raise ValueError(
+            "Uni-Mol embeddings npz must contain keys 'smiles' and 'emb'. "
+            f"Found keys: {list(npz.keys())}"
+        )
+
+    emb_smiles = np.asarray(npz["smiles"])
+    emb = np.asarray(npz["emb"], dtype=float)
+    if emb.ndim != 2:
+        raise ValueError(f"Expected 'emb' to have shape (N, D), got {emb.shape}.")
+    if emb_smiles.shape[0] != emb.shape[0]:
+        raise ValueError(
+            f"Mismatched npz sizes: len(smiles)={emb_smiles.shape[0]} vs emb rows={emb.shape[0]}."
+        )
+
+    emb_keys = [_normalize_smiles_key(s) for s in emb_smiles.tolist()]
+    if len(set(emb_keys)) != len(emb_keys):
+        raise ValueError(
+            "Duplicate SMILES found in Uni-Mol embeddings npz. "
+            "Expected unique SMILES keys for alignment."
+        )
+    emb_lookup = {s: i for i, s in enumerate(emb_keys)}
+
+    aligned_idx = np.empty(len(df), dtype=int)
+    missing = []
+    for i, smi in enumerate(df[smiles_col].tolist()):
+        if pd.isna(smi):
+            missing.append("<NaN>")
+            continue
+        key = _normalize_smiles_key(smi)
+        idx = emb_lookup.get(key)
+        if idx is None:
+            missing.append(key)
+            continue
+        aligned_idx[i] = idx
+
+    if missing:
+        uniq_missing = list(dict.fromkeys(missing))
+        preview = ", ".join(uniq_missing[:5])
+        more = "" if len(uniq_missing) <= 5 else f", ... (+{len(uniq_missing)-5} more)"
+        raise ValueError(
+            f"Uni-Mol embedding alignment failed: {len(missing)} dataframe rows are missing "
+            f"from embeddings map ({len(uniq_missing)} unique SMILES). "
+            f"Examples: {preview}{more}"
+        )
+
+    return emb[aligned_idx]
+
+
+def compute_fold_honest_unimol_similarity(
+    emb: np.ndarray,
+    train_active_mask: np.ndarray,
+    eps: float = 1e-12,
+) -> np.ndarray:
+    """
+    Recompute Uni-Mol cosine similarity to centroid built from TRAIN-FOLD actives only.
+    """
+    train_active_mask = np.asarray(train_active_mask, dtype=bool)
+    if emb.shape[0] != train_active_mask.shape[0]:
+        raise ValueError(
+            "Embedding rows and train_active_mask length must match: "
+            f"{emb.shape[0]} vs {train_active_mask.shape[0]}"
+        )
+    if not np.any(train_active_mask):
+        raise ValueError("Train active mask is empty for this fold; cannot build Uni-Mol centroid.")
+
+    centroid = np.mean(emb[train_active_mask], axis=0)
+    emb_norm = np.linalg.norm(emb, axis=1)
+    cent_norm = float(np.linalg.norm(centroid))
+    denom = np.maximum(emb_norm * cent_norm, eps)
+    sim = (emb @ centroid) / denom
+    return np.clip(sim, -1.0, 1.0)
+
+
 def apply_druglike_filter(  # CHANGE 2
     df_pool: pd.DataFrame,
     active_mask: np.ndarray,
@@ -396,10 +508,25 @@ def apply_druglike_filter(  # CHANGE 2
 
 
 def filter_modalities(modalities: Dict[str, Tuple[str, str]], drop_names: List[str]) -> Dict[str, Tuple[str, str]]:  # CHANGE 5
-    """Remove modalities by display name."""  # CHANGE 5
+    """Remove modalities by key or display name (case-insensitive)."""  # CHANGE 5
     if not drop_names:
         return modalities
-    return {k: v for k, v in modalities.items() if v[1] not in drop_names}
+    drop_exact = {d.strip() for d in drop_names if isinstance(d, str) and d.strip()}
+    drop_lower = {d.lower() for d in drop_exact}
+
+    filtered = {}
+    for key, (direction, display_name) in modalities.items():
+        key_l = key.lower()
+        name_l = display_name.lower()
+        if (
+            key in drop_exact
+            or display_name in drop_exact
+            or key_l in drop_lower
+            or name_l in drop_lower
+        ):
+            continue
+        filtered[key] = (direction, display_name)
+    return filtered
 
 
 def compute_ef(scores: np.ndarray, active_mask: np.ndarray, cutoff_pct: float) -> Tuple[float, int, int]:  # CHANGE 4
@@ -425,7 +552,7 @@ def evaluate_weights(  # CHANGE 4
 ) -> Dict:
     """Evaluate weights and return performance dict."""
     if cutoffs is None:
-        cutoffs = [0.5, 1, 5, 10, 20, 30]  # CHANGE 4
+        cutoffs = CUTOFFS  # CHANGE 4
     scores = X @ weights
     results = {}
     for cutoff in cutoffs:
@@ -525,6 +652,20 @@ def objective_entropy_bedroc(weights, X, active_mask, alpha, entropy_weight, n_m
     return -(bed + entropy_weight * bed * entropy)
 
 
+def _de_call_kwargs(config, seed: int) -> Dict[str, object]:
+    """Shared SciPy DE kwargs with optional parallel workers."""
+    kwargs: Dict[str, object] = {
+        "maxiter": config.de_maxiter,
+        "seed": seed,
+        "workers": config.de_workers,
+        "polish": True,
+    }
+    if config.de_workers != 1:
+        # Required for parallel evaluation in SciPy differential_evolution.
+        kwargs["updating"] = "deferred"
+    return kwargs
+
+
 # =============================================================================
 # OPTIMIZATION METHODS (unchanged from original)
 # =============================================================================
@@ -539,8 +680,7 @@ def optimize_unconstrained(X, active_mask, config):
         result = differential_evolution(
             objective_unconstrained, bounds,
             args=(X, active_mask, config.cutoff_weights, config.min_weight, config.max_weight),  # CHANGE 7
-            maxiter=config.de_maxiter, seed=seed,
-            workers=1, polish=True
+            **_de_call_kwargs(config, seed),
         )
         w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
         obj = result.fun
@@ -560,8 +700,7 @@ def optimize_fair(X, active_mask, config):
         result = differential_evolution(
             objective_fair, bounds,
             args=(X, active_mask, config.cutoff_weights, config.min_weight, config.max_weight),  # CHANGE 7
-            maxiter=config.de_maxiter, seed=seed,
-            workers=1, polish=True
+            **_de_call_kwargs(config, seed),
         )
         w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
         obj = result.fun
@@ -581,8 +720,7 @@ def optimize_entropy(X, active_mask, config):
         result = differential_evolution(
             objective_entropy, bounds,
             args=(X, active_mask, config.cutoff_weights, config.entropy_weight, n_mod, config.min_weight, config.max_weight),  # CHANGE 7
-            maxiter=config.de_maxiter, seed=seed,
-            workers=1, polish=True
+            **_de_call_kwargs(config, seed),
         )
         w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
         obj = result.fun
@@ -602,8 +740,7 @@ def optimize_unconstrained_bedroc(X, active_mask, config):  # CHANGE 4
         result = differential_evolution(
             objective_unconstrained_bedroc, bounds,
             args=(X, active_mask, config.bedroc_alpha, config.min_weight, config.max_weight),  # CHANGE 7
-            maxiter=config.de_maxiter, seed=seed,
-            workers=1, polish=True
+            **_de_call_kwargs(config, seed),
         )
         w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
         obj = result.fun
@@ -623,8 +760,7 @@ def optimize_fair_bedroc(X, active_mask, config):  # CHANGE 4
         result = differential_evolution(
             objective_fair_bedroc, bounds,
             args=(X, active_mask, config.bedroc_alpha, config.min_weight, config.max_weight),  # CHANGE 7
-            maxiter=config.de_maxiter, seed=seed,
-            workers=1, polish=True
+            **_de_call_kwargs(config, seed),
         )
         w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
         obj = result.fun
@@ -644,8 +780,7 @@ def optimize_entropy_bedroc(X, active_mask, config):  # CHANGE 4
         result = differential_evolution(
             objective_entropy_bedroc, bounds,
             args=(X, active_mask, config.bedroc_alpha, config.entropy_weight, n_mod, config.min_weight, config.max_weight),  # CHANGE 7
-            maxiter=config.de_maxiter, seed=seed,
-            workers=1, polish=True
+            **_de_call_kwargs(config, seed),
         )
         w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
         obj = result.fun
@@ -683,9 +818,19 @@ def split_actives(active_mask: np.ndarray, train_frac: float, seed: int) -> Tupl
     """
     rng = np.random.RandomState(seed)
 
+    if not (0.0 < train_frac < 1.0):
+        raise ValueError("train_frac must be in (0, 1).")
+
     active_indices = np.where(active_mask)[0]
     n_actives = len(active_indices)
+    if n_actives < 2:
+        raise ValueError("Need at least 2 actives to create train/test split.")
     n_train = int(n_actives * train_frac)
+    if n_train <= 0 or n_train >= n_actives:
+        raise ValueError(
+            f"train_frac={train_frac} yields invalid split with {n_actives} actives "
+            f"(n_train={n_train}, n_test={n_actives - n_train})."
+        )
 
     shuffled = rng.permutation(active_indices)
     train_indices = shuffled[:n_train]
@@ -700,31 +845,28 @@ def split_actives(active_mask: np.ndarray, train_frac: float, seed: int) -> Tupl
     return train_active_mask, test_active_mask
 
 
-def make_cv_folds(active_mask: np.ndarray, n_folds: int, seed: int) -> List[Tuple[np.ndarray, np.ndarray]]:
+def make_cv_folds(
+    active_mask: np.ndarray,
+    n_folds: int,
+    seed: int,
+    train_frac: float,
+) -> List[Tuple[np.ndarray, np.ndarray]]:
     """
-    Create k-fold splits over the active compounds.
+    Create repeated random train/test splits over the active compounds.
 
     Returns a list of (train_active_mask, test_active_mask) pairs.
     All non-active compounds have False in both masks.
     """
-    if n_folds < 2:
-        raise ValueError("n_folds must be >= 2 for cross-validation.")
-
-    active_indices = np.where(active_mask)[0]
-    n_actives = len(active_indices)
-    if n_folds > n_actives:
-        raise ValueError("n_folds cannot exceed number of actives.")
-
-    rng = np.random.RandomState(seed)
-    shuffled = rng.permutation(active_indices)
-    fold_indices = np.array_split(shuffled, n_folds)
+    if n_folds < 1:
+        raise ValueError("n_folds must be >= 1.")
 
     folds = []
-    for test_idx in fold_indices:
-        train_mask = active_mask.copy()
-        test_mask = np.zeros_like(active_mask, dtype=bool)
-        test_mask[test_idx] = True
-        train_mask[test_idx] = False
+    for i in range(n_folds):
+        train_mask, test_mask = split_actives(
+            active_mask=active_mask,
+            train_frac=train_frac,
+            seed=seed + i,
+        )
         folds.append((train_mask, test_mask))
 
     return folds
@@ -750,7 +892,7 @@ def compute_baselines(X: np.ndarray, active_mask: np.ndarray, mod_names: List[st
 
     # Random weights (averaged)
     np.random.seed(config.de_seed)
-    all_cutoffs = [0.5, 1, 5, 10, 20, 30]  # CHANGE 3: evaluate random at all cutoffs
+    all_cutoffs = CUTOFFS  # CHANGE 3: evaluate random at all cutoffs
     random_perfs = {c: [] for c in all_cutoffs}  # CHANGE 3
     for _ in range(config.n_random_trials):
         w_rand = np.random.dirichlet(np.ones(n_mod))
@@ -900,6 +1042,7 @@ class CWRATrainTest:
             print(f"Method: {self.config.method}")
             print(f"Train fraction: {self.config.train_frac}")
             print(f"Split seed: {self.config.split_seed}")
+            print(f"DE workers: {self.config.de_workers}")
 
         # ----- Split actives -----
         train_active_mask, test_active_mask = split_actives(
@@ -1286,7 +1429,7 @@ class CWRATrainTest:
 
 def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                          output_dir: Optional[Path] = None, verbose: bool = True):
-    """Run k-fold CV over actives and save per-fold + summary outputs."""
+    """Run repeated active train/test splits and save per-split + summary outputs."""
     t0 = time.time()
     def _fmt_pm(mean: float, std: float, digits: int = 2) -> str:
         return f"{mean:.{digits}f} +/- {std:.{digits}f}"
@@ -1305,7 +1448,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
 
     if verbose:
         print("=" * 80)
-        print(f"CWRA K-FOLD CROSS-VALIDATION (k={n_folds})")
+        print(f"CWRA REPEATED ACTIVE-SPLIT CV (n={n_folds})")
         print("=" * 80)
 
     df_pool = df[~df['source'].isin(config.exclude_sources)].copy()
@@ -1364,10 +1507,17 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         print(f"\nDataset: {N:,} compounds, {A_full} actives ({100*A_full/N:.2f}%)")
         print(f"Modalities: {n_mod}")
         print(f"Method: {config.method}")
-        print(f"CV folds: {n_folds}")
+        print(f"CV splits: {n_folds}")
+        print(f"Train fraction (actives): {config.train_frac:.3f}")
         print(f"CV seed: {config.split_seed}")
+        print(f"DE workers: {config.de_workers}")
 
-    folds = make_cv_folds(full_active_mask, n_folds, config.split_seed)
+    folds = make_cv_folds(
+        full_active_mask,
+        n_folds,
+        config.split_seed,
+        config.train_frac,
+    )
 
     perf_rows = []
     weight_rows = []
@@ -1378,6 +1528,35 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
     extra_rows = []  # CHANGE 8
     entropy_rows = []
     significant_rows = []
+    unimol_fold_rows = []
+
+    # Fold-honest Uni-Mol setup (CV-only).
+    use_fold_honest_unimol = False
+    unimol_emb_aligned = None
+    unimol_feature_key = 'unimol_similarity'
+    unimol_display_name = config.modalities.get(unimol_feature_key, ('high', 'UniMol_sim'))[1]
+    if config.fold_honest_unimol:
+        if unimol_feature_key not in effective_modalities:
+            if verbose:
+                print(
+                    "Fold-honest Uni-Mol requested but modality 'unimol_similarity' "
+                    "is not enabled (possibly dropped); skipping fold-honest recomputation."
+                )
+        else:
+            if verbose:
+                print(
+                    "Fold-honest Uni-Mol similarity enabled: centroid computed from "
+                    "training actives only per fold."
+                )
+            if not config.unimol_embeddings_path:
+                raise ValueError(
+                    "Fold-honest Uni-Mol is enabled but unimol_embeddings_path is not set. "
+                    "Provide --unimol-embeddings <path.npz>."
+                )
+            unimol_emb_aligned = load_unimol_embeddings_npz(
+                config.unimol_embeddings_path, df_pool, config.smiles_col
+            )
+            use_fold_honest_unimol = True
 
     base_method = config.method if config.method in ['unconstrained', 'fair', 'entropy'] else 'fair'  # CHANGE 4
     chosen = f"{base_method}_bedroc" if config.use_bedroc else base_method  # CHANGE 4
@@ -1402,15 +1581,49 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
             print(f"\nFold {fold_idx}/{n_folds}: {A_train} train actives / {A_test} test actives")
             print(f"--- Optimizing weights on TRAIN actives ({A_train}) ---")
 
-        if config.strict_cv:  # CHANGE 7
-            X, _, _ = normalize_modalities_cv(
-                df_pool,
-                effective_modalities,
-                config.norm_method,
-                exclude_mask=test_active_mask,
+        if use_fold_honest_unimol:
+            # Fold-local dataframe copy to avoid mutating global pool across folds.
+            df_fold = df_pool.copy()
+            unimol_sim = compute_fold_honest_unimol_similarity(
+                unimol_emb_aligned,
+                train_active_mask,
             )
+
+            # Requested in spec: derive the used Uni-Mol name from config.modalities.
+            unimol_col = config.modalities[unimol_feature_key][1]
+
+            # Preserve existing global column values for debugging, when present.
+            for col in [unimol_col, unimol_feature_key]:
+                if col in df_fold.columns:
+                    df_fold[f"{col}_global"] = df_fold[col]
+
+            # Overwrite fold-local Uni-Mol similarity for this fold only.
+            df_fold[unimol_col] = unimol_sim
+            df_fold[unimol_feature_key] = unimol_sim
+
+            if config.strict_cv:  # CHANGE 7
+                X, _, _ = normalize_modalities_cv(
+                    df_fold,
+                    effective_modalities,
+                    config.norm_method,
+                    exclude_mask=test_active_mask,
+                )
+            else:
+                X, _, _ = normalize_modalities(
+                    df_fold,
+                    effective_modalities,
+                    norm_method=config.norm_method,
+                )
         else:
-            X = X_global
+            if config.strict_cv:  # CHANGE 7
+                X, _, _ = normalize_modalities_cv(
+                    df_pool,
+                    effective_modalities,
+                    config.norm_method,
+                    exclude_mask=test_active_mask,
+                )
+            else:
+                X = X_global
 
         all_methods = {}
         method_names = ['unconstrained', 'fair', 'entropy']  # CHANGE 4
@@ -1490,6 +1703,20 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         weights = chosen_data['weights']
         entropy_rows.append(_normalized_entropy(weights))
         significant_rows.append(int(np.sum(weights > 0.05)))
+
+        if use_fold_honest_unimol:
+            unimol_weight = float('nan')
+            if unimol_display_name in mod_names:
+                unimol_weight = float(weights[mod_names.index(unimol_display_name)])
+            unimol_fold_rows.append({
+                'fold': fold_idx,
+                'method': chosen,
+                'unimol_weight': unimol_weight,
+                'unimol_sim_train_mean': float(np.mean(unimol_sim[train_active_mask])),
+                'unimol_sim_test_mean': float(np.mean(unimol_sim[test_active_mask])) if A_test > 0 else float('nan'),
+                'unimol_sim_full_mean': float(np.mean(unimol_sim)),
+            })
+
         for i, name in enumerate(mod_names):
             weight_rows.append({
                 'fold': fold_idx,
@@ -1644,6 +1871,10 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         mean_rank_summary_df.to_csv(output_dir / f'{cv_prefix}_mean_rank_summary.csv', index=False)
         if not extra_df.empty:  # CHANGE 8
             extra_df.to_csv(output_dir / f'{cv_prefix}_folds_extra_metrics.csv', index=False)
+        if use_fold_honest_unimol and unimol_fold_rows:
+            pd.DataFrame(unimol_fold_rows).to_csv(
+                output_dir / f'{cv_prefix}_folds_unimol_fold_honest.csv', index=False
+            )
         if filter_report is not None:  # CHANGE 2
             pd.DataFrame([filter_report]).to_csv(
                 output_dir / f'{prefix}_filter_report.csv', index=False
@@ -1712,18 +1943,61 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
             .agg(test_ef_1_mean=('test_ef_1', 'mean'))
         )
         eq_row = baseline_summary[baseline_summary['baseline'] == 'Equal Weights']
-        bi_row = baseline_summary[baseline_summary['baseline'].str.startswith('Best Individual')]
         eq_ef1 = float(eq_row['test_ef_1_mean'].iloc[0]) if not eq_row.empty else 0.0
-        bi_ef1 = float(bi_row['test_ef_1_mean'].iloc[0]) if not bi_row.empty else 0.0
-        bi_name = bi_row['baseline'].iloc[0] if not bi_row.empty else 'Best Individual'
+        # Use per-cutoff best individual definition (for EF@1 here) for consistency.
+        bi_ef1 = float("nan")
+        if (not indiv_df.empty) and ("test_ef_1" in indiv_df.columns):
+            bi_ef1 = float(indiv_df.groupby('modality')['test_ef_1'].mean().max())
+        if np.isnan(bi_ef1):
+            bi_row = baseline_summary[baseline_summary['baseline'].str.startswith('Best Individual')]
+            bi_ef1 = float(bi_row['test_ef_1_mean'].iloc[0]) if not bi_row.empty else 0.0
         te_ef1 = float(summary_df.loc[summary_df['cutoff_pct'] == 1, 'test_ef_mean'].iloc[0])
-        print(f"  Equal-weight  EF@1%: {eq_ef1:.2f}")
-        print(f"  Best-indiv    EF@1%: {bi_ef1:.2f} ({bi_name})")
-        print(f"  CWRA (test)   EF@1%: {te_ef1:.2f}")
+
+        method_ef1 = (
+            method_df.groupby('method', as_index=False)
+            .agg(test_ef_1_mean=('test_ef_1', 'mean'))
+        )
+        uncon_key = 'unconstrained_bedroc' if config.use_bedroc else 'unconstrained'
+        entropy_key = 'entropy_bedroc' if config.use_bedroc else 'entropy'
+
         if eq_ef1 > 0:
             print(f"  CWRA vs equal-weight: {100*(te_ef1/eq_ef1 - 1):+.1f}%")
         if bi_ef1 > 0:
             print(f"  CWRA vs best-indiv:   {100*(te_ef1/bi_ef1 - 1):+.1f}%")
+            for method_key, method_label in [
+                (uncon_key, 'DE Unconstrained'),
+                (entropy_key, 'DE Entropy'),
+            ]:
+                mrow = method_ef1[method_ef1['method'] == method_key]
+                if mrow.empty:
+                    continue
+                m_ef1 = float(mrow['test_ef_1_mean'].iloc[0])
+                print(f"  {method_label} vs best-indiv: {100*(m_ef1/bi_ef1 - 1):+.1f}%")
+            all_ef_parts = []
+            for c in CUTOFFS:
+                c_str = f"{c:g}"
+                col = f'test_ef_{c}'
+                row_c = summary_df.loc[summary_df['cutoff_pct'] == c]
+                if row_c.empty:
+                    continue
+                # Compare against best individual modality at this cutoff (per-cutoff best).
+                bi_mean_c = float("nan")
+                if (not indiv_df.empty) and (col in indiv_df.columns):
+                    bi_mean_c = float(indiv_df.groupby('modality')[col].mean().max())
+                elif col in baseline_df.columns:
+                    # Fallback for backward compatibility if individual table is unavailable.
+                    bi_grp = baseline_df[baseline_df['baseline'].str.startswith('Best Individual')]
+                    if not bi_grp.empty:
+                        bi_mean_c = float(bi_grp[col].mean())
+                if np.isnan(bi_mean_c):
+                    continue
+                if bi_mean_c <= 0:
+                    continue
+                cwra_mean_c = float(row_c['test_ef_mean'].iloc[0])
+                delta_pct = 100 * (cwra_mean_c / bi_mean_c - 1)
+                all_ef_parts.append(f"EF@{c_str}% {delta_pct:+.1f}%")
+            if all_ef_parts:
+                print(f"  CWRA vs best-indiv (all EF): {', '.join(all_ef_parts)}")
 
         print(f"\nOptimized weights (mean across folds):")
         for _, row in mean_weights_df.iterrows():
@@ -1747,15 +2021,15 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 rows.append([
                     name,
                     _fmt_pm(grp['test_ef_1'].mean(), grp['test_ef_1'].std(ddof=0)),
+                    _fmt_pm(grp['test_ef_2.5'].mean(), grp['test_ef_2.5'].std(ddof=0)) if 'test_ef_2.5' in grp.columns else 'N/A',
                     _fmt_pm(grp['test_ef_5'].mean(), grp['test_ef_5'].std(ddof=0)),
                     _fmt_pm(grp['test_ef_10'].mean(), grp['test_ef_10'].std(ddof=0)),
                     _fmt_pm(grp['test_ef_20'].mean(), grp['test_ef_20'].std(ddof=0)) if 'test_ef_20' in grp.columns else 'N/A',
-                    _fmt_pm(grp['test_ef_30'].mean(), grp['test_ef_30'].std(ddof=0)) if 'test_ef_30' in grp.columns else 'N/A',
                 ])
             rows.sort(key=lambda r: float(r[1].split()[0]), reverse=True)
             _print_table(
                 "Individual modality performance (test set, mean +/- std)",
-                ["Modality", "EF@1%", "EF@5%", "EF@10%", "EF@20%", "EF@30%"],
+                ["Modality", "EF@1%", "EF@2.5%", "EF@5%", "EF@10%", "EF@20%"],
                 rows,
             )
 
@@ -1781,10 +2055,10 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
             combo_rows.append([
                 method_labels[key],
                 _fmt_pm(grp['test_ef_1'].mean(), grp['test_ef_1'].std(ddof=0)),
+                _fmt_pm(grp['test_ef_2.5'].mean(), grp['test_ef_2.5'].std(ddof=0)) if 'test_ef_2.5' in grp.columns else 'N/A',
                 _fmt_pm(grp['test_ef_5'].mean(), grp['test_ef_5'].std(ddof=0)),
                 _fmt_pm(grp['test_ef_10'].mean(), grp['test_ef_10'].std(ddof=0)),
                 _fmt_pm(grp['test_ef_20'].mean(), grp['test_ef_20'].std(ddof=0)) if 'test_ef_20' in grp.columns else 'N/A',
-                _fmt_pm(grp['test_ef_30'].mean(), grp['test_ef_30'].std(ddof=0)) if 'test_ef_30' in grp.columns else 'N/A',
             ])
 
         for baseline_name in baseline_df['baseline'].unique():
@@ -1793,16 +2067,16 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 combo_rows.append([
                     baseline_name,
                     _fmt_pm(grp['test_ef_1'].mean(), grp['test_ef_1'].std(ddof=0)),
+                    _fmt_pm(grp['test_ef_2.5'].mean(), grp['test_ef_2.5'].std(ddof=0)) if 'test_ef_2.5' in grp.columns else 'N/A',
                     _fmt_pm(grp['test_ef_5'].mean(), grp['test_ef_5'].std(ddof=0)),
                     _fmt_pm(grp['test_ef_10'].mean(), grp['test_ef_10'].std(ddof=0)),
                     _fmt_pm(grp['test_ef_20'].mean(), grp['test_ef_20'].std(ddof=0)) if 'test_ef_20' in grp.columns else 'N/A',
-                    _fmt_pm(grp['test_ef_30'].mean(), grp['test_ef_30'].std(ddof=0)) if 'test_ef_30' in grp.columns else 'N/A',
                 ])
 
         if combo_rows:
             _print_table(
                 "Combination methods (test set, mean +/- std)",
-                ["Method", "EF@1%", "EF@5%", "EF@10%", "EF@20%", "EF@30%"],
+                ["Method", "EF@1%", "EF@2.5%", "EF@5%", "EF@10%", "EF@20%"],
                 combo_rows,
             )
 
@@ -1827,8 +2101,6 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
 # PAPER TABLE BUILDER
 # =============================================================================
 
-CUTOFFS = [0.5, 1, 5, 10, 20, 30]  # CHANGE 4
-
 
 def build_paper_table(
     indiv_df: pd.DataFrame,
@@ -1841,7 +2113,7 @@ def build_paper_table(
     Aggregate per-fold CV results into a single paper-ready table.
 
     Returns a DataFrame with columns:
-        method, ef_1, ef_5, ..., ef_30, hits_1, ..., hits_30
+        method, ef_1, ef_2.5, ..., ef_20, hits_1, ..., hits_20
         (and their _std variants)
 
     Rows: one per individual modality, then Equal-weight, then CWRA.
@@ -2093,6 +2365,10 @@ def main():
     parser = argparse.ArgumentParser(
         description='CWRA with Train/Test Split for Honest Evaluation'
     )
+    # Example:
+    # python cwra.py -i data/composed_modalities_with_rdkit.csv -o results/bedroc \
+    #   --norm minmax --seed 42 --bedroc --latex --extra-metrics --strict-cv \
+    #   --fold-honest-unimol --unimol-embeddings data/unimol_embeddings.npz
 
     parser.add_argument('--input', '-i', default='data/composed_modalities_with_rdkit.csv',
         help='Input CSV file (default: data/composed_modalities_with_rdkit.csv)',
@@ -2108,30 +2384,50 @@ def main():
     parser.add_argument('--max-mw', type=float, default=600) 
     parser.add_argument('--max-rotb', type=int, default=15)
     parser.add_argument('--smiles-col', type=str, default='smiles')  # CHANGE 2
-    parser.add_argument('--drop-modalities', nargs='+', default=[])  # CHANGE 5
+    parser.add_argument(
+        '--drop-modalities',
+        nargs='+',
+        default=[],
+        help="Modalities to drop by key and/or display name (e.g. unimol_similarity or UniMol_sim)",
+    )  # CHANGE 5
     parser.add_argument('--auto-prune', type=float, default=0.0)  # CHANGE 5
     parser.add_argument('--de-maxiter', type=int, default=1000)  # CHANGE 6
     parser.add_argument('--de-seeds', type=int, default=1)  # CHANGE 6
+    parser.add_argument(
+        '--de-workers',
+        type=int,
+        default=-1,
+        help='SciPy differential_evolution workers (-1 = all CPUs, 1 = single process)',
+    )
     parser.add_argument('--strict-cv', dest='strict_cv', action='store_true')  # CHANGE 7
     parser.add_argument('--no-strict-cv', dest='strict_cv', action='store_false')  # CHANGE 7
     parser.set_defaults(strict_cv=False)  # CHANGE 7
+    parser.add_argument('--fold-honest-unimol', action='store_true', default=False, help='Recompute Uni-Mol similarity per CV fold using training-fold actives only.')
+    parser.add_argument('--unimol-embeddings', type=str, default=None, help="Path to Uni-Mol embeddings .npz containing keys 'smiles' and 'emb'.")
     parser.add_argument('--extra-metrics', dest='report_extra_metrics', action='store_true')  # CHANGE 8
     parser.add_argument('--no-extra-metrics', dest='report_extra_metrics', action='store_false')  # CHANGE 8
     parser.set_defaults(report_extra_metrics=True)  # CHANGE 8
     parser.add_argument('--report-bedroc-alpha', type=float, default=80.0)  # CHANGE 8
+    parser.add_argument(
+        '--include-newref-137-as-active',
+        action='store_true',
+        default=False,
+        help="Treat source 'newRef_137' as active (remove from exclude_sources and add to active_sources).",
+    )
     parser.add_argument('--self-test', action='store_true', default=False)  # CHANGE 7
-    parser.add_argument('--train-frac', type=float, default=0.7,
-                        help='Fraction of actives for training (default: 0.7)')
-    parser.add_argument('--cv-folds', type=int, default=5,
-                        help='Number of CV folds over actives (>=2 enables CV)')
-    parser.add_argument('--seed', type=int, default=42,
-                        help='Seed for both DE and active split')
-    parser.add_argument('--latex', action='store_true', default=False,
-                        help='Generate LaTeX table source file')
-    parser.add_argument('--no-std', action='store_true', default=False,
-                        help='Omit ±std in LaTeX table (show means only)')
+    parser.add_argument('--train-frac', type=float, default=0.7, help='Fraction of actives for training (default: 0.7)')
+    parser.add_argument('--cv-folds', type=int, default=5, help='Number of repeated active train/test splits (independent of --train-frac)')
+    parser.add_argument('--seed', type=int, default=42, help='Seed for both DE and active split')
+    parser.add_argument('--latex', action='store_true', default=False, help='Generate LaTeX table source file')
+    parser.add_argument('--no-std', action='store_true', default=False, help='Omit ±std in LaTeX table (show means only)')
 
     args = parser.parse_args()
+
+    if args.fold_honest_unimol and not args.unimol_embeddings:
+        parser.error(
+            "--fold-honest-unimol requires --unimol-embeddings <path_to_npz>. "
+            "Example: --fold-honest-unimol --unimol-embeddings data/unimol_embeddings.npz"
+        )
 
     if args.self_test:  # CHANGE 7
         rng = np.random.RandomState(0)
@@ -2159,7 +2455,17 @@ def main():
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = logs_dir / f"cwra_cv_run_{time.strftime('%Y%m%d_%H%M%S')}.log"
 
+    default_cfg = CWRAConfig()
+    active_sources = list(default_cfg.active_sources)
+    exclude_sources = list(default_cfg.exclude_sources)
+    if args.include_newref_137_as_active:
+        if "newRef_137" not in active_sources:
+            active_sources.append("newRef_137")
+        exclude_sources = [s for s in exclude_sources if s != "newRef_137"]
+
     config = CWRAConfig(
+        active_sources=active_sources,
+        exclude_sources=exclude_sources,
         method=args.method,
         min_weight=args.min_weight,
         max_weight=args.max_weight,
@@ -2174,7 +2480,10 @@ def main():
         auto_prune_threshold=args.auto_prune,  # CHANGE 5
         de_maxiter=args.de_maxiter,  # CHANGE 6
         de_n_seeds=args.de_seeds,  # CHANGE 6
+        de_workers=args.de_workers,
         strict_cv=args.strict_cv,  # CHANGE 7
+        fold_honest_unimol=args.fold_honest_unimol,
+        unimol_embeddings_path=args.unimol_embeddings,
         report_extra_metrics=args.report_extra_metrics,  # CHANGE 8
         report_bedroc_alpha=args.report_bedroc_alpha,  # CHANGE 8
         de_seed=args.seed,
@@ -2189,6 +2498,8 @@ def main():
             print(f"Logging console output to {log_path}")
             df = pd.read_csv(args.input)
             print(f"Loaded {len(df):,} compounds")
+            if args.include_newref_137_as_active:
+                print("Including 'newRef_137' as active source.")
 
             if args.cv_folds and args.cv_folds > 1:
                 run_cross_validation(df, config, args.cv_folds, output_dir=output_dir, verbose=True)

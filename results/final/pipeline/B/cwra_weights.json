@@ -1,0 +1,43 @@
+{
+  "method": "fair",
+  "seed": 42,
+  "modality_names": [
+    "GraphDTA_Kd",
+    "GraphDTA_Ki",
+    "GraphDTA_IC50",
+    "MLTLE_pKd",
+    "Vina",
+    "Boltz_affinity",
+    "TankBind",
+    "DrugBAN",
+    "MolTrans",
+    "UniMol_sim",
+    "Boltz_confidence"
+  ],
+  "modality_keys": [
+    "graphdta_kd",
+    "graphdta_ki",
+    "graphdta_ic50",
+    "mltle_pKd",
+    "vina_score",
+    "boltz_affinity",
+    "tankbind_affinity",
+    "drugban_affinity",
+    "moltrans_affinity",
+    "unimol_similarity",
+    "boltz_confidence"
+  ],
+  "weights": [
+    0.03694245097190927,
+    0.030298788672456174,
+    0.2421244784531326,
+    0.030000000000000866,
+    0.20600825596213293,
+    0.053173323954098635,
+    0.0694569742238236,
+    0.10075942835495082,
+    0.0415584308363674,
+    0.03435689683392489,
+    0.1553209717372027
+  ]
+}

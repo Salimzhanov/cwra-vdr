@@ -13,7 +13,7 @@ from typing import Optional
 
 import pandas as pd
 
-from cwra_cv import CWRAConfig, normalize_modalities
+from cwra_compat import CWRAConfig, normalize_modalities
 from pu_rn import build_reliable_negative_mask
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,14 @@ def _choose_smiles_col(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
+def _configure_active_sources(config: CWRAConfig, include_newref_137_as_active: bool) -> None:
+    if not include_newref_137_as_active:
+        return
+    if "newRef_137" not in config.active_sources:
+        config.active_sources.append("newRef_137")
+    config.exclude_sources = [s for s in config.exclude_sources if s != "newRef_137"]
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Step A: Reliable negatives for PU learning.")
     parser.add_argument(
@@ -62,6 +70,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="Include UniMol similarity modality in Step A baseline scoring.",
     )
+    parser.add_argument(
+        "--include-newref-137-as-active",
+        action="store_true",
+        default=False,
+        help="Treat source 'newRef_137' as active (remove from exclude_sources).",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -72,6 +86,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     df = pd.read_csv(input_path)
     config = CWRAConfig()
+    _configure_active_sources(config, args.include_newref_137_as_active)
 
     smiles_col = _choose_smiles_col(df)
 
@@ -79,6 +94,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     active_mask = df_pool["source"].isin(config.active_sources).values
     logger.info("Loaded %d rows, pool after exclude_sources: %d", len(df), len(df_pool))
     logger.info("Active count: %d", int(active_mask.sum()))
+    if args.include_newref_137_as_active:
+        logger.info("Including 'newRef_137' as active source.")
 
     modalities_to_use = dict(BASE_MODALITIES)
     if args.include_boltz_confidence:

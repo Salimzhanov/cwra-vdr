@@ -14,7 +14,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from cwra_cv import CWRAConfig, normalize_modalities
+from cwra_compat import CWRAConfig, normalize_modalities
 from pu_descriptors import compute_physchem_descriptors
 from pu_meta_model import build_feature_matrix, standardize_features
 from shift_weights import compute_importance_weights
@@ -30,6 +30,14 @@ def _choose_smiles_col(df: pd.DataFrame) -> Optional[str]:
     if "SMILES" in df.columns:
         return "SMILES"
     return None
+
+
+def _configure_active_sources(config: CWRAConfig, include_newref_137_as_active: bool) -> None:
+    if not include_newref_137_as_active:
+        return
+    if "newRef_137" not in config.active_sources:
+        config.active_sources.append("newRef_137")
+    config.exclude_sources = [s for s in config.exclude_sources if s != "newRef_137"]
 
 
 def _align_labels(labels_df: pd.DataFrame, df_pool: pd.DataFrame) -> pd.Series:
@@ -130,13 +138,22 @@ def main(argv: Optional[list[str]] = None) -> int:
         choices=["unlabeled", "generated_only"],
         default="unlabeled",
     )
+    parser.add_argument(
+        "--include-newref-137-as-active",
+        action="store_true",
+        default=False,
+        help="Treat source 'newRef_137' as active (remove from exclude_sources).",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     config = CWRAConfig()
+    _configure_active_sources(config, args.include_newref_137_as_active)
     df = pd.read_csv(args.input)
     df_pool = df[~df["source"].isin(config.exclude_sources)].copy()
+    if args.include_newref_137_as_active:
+        logger.info("Including 'newRef_137' as active source.")
 
     labels_df = pd.read_csv(args.pu_labels)
     pu_label = _align_labels(labels_df, df_pool)

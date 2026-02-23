@@ -1,0 +1,13 @@
+{
+  "mode": "bh",
+  "alpha": 0.1,
+  "q": 0.1,
+  "pval_column": "pval_unweighted",
+  "select_over": "unlabeled",
+  "n_universe": 1000,
+  "n_selected": 1000,
+  "top_k": 1000,
+  "pval_type": "unweighted",
+  "n_pos_selected": 0,
+  "meta_score_threshold": 0.6478199338728781
+}

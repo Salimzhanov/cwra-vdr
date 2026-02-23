@@ -2,7 +2,7 @@
 """
 Pipeline Steps:
   1. Load composed modalities + CWRA meta_scores
-  2. Exclude newRef_137 (non-VDR reference subset)
+  2. Optionally exclude newRef_137 (legacy behavior)
   3. Structural classification via RDKit SMARTS
   4. Apply pre-filter (MW > 600 Da or RotB > 15) on generated compounds
   5. Define analysis groups (Reference / Generated / Top 100 / G1-G3)
@@ -30,12 +30,13 @@ import os
 import sys
 import json
 import warnings
+import argparse
 import numpy as np
 import pandas as pd
 from scipy import stats
 
 from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem, Descriptors, rdMolDescriptors
+from rdkit.Chem import AllChem, Descriptors, rdMolDescriptors, rdFingerprintGenerator
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
 warnings.filterwarnings('ignore')
@@ -67,6 +68,14 @@ FP_NBITS  = 2048
 NN_GEN_SAMPLE_SIZE = 2000
 NN_PF_SAMPLE_SIZE  = 500
 RANDOM_SEED = 42
+BASE_REFERENCE_SOURCES = ['initial_370', 'calcitriol']
+NEWREF_SOURCE = 'newRef_137'
+
+try:
+    MORGAN_GENERATOR = rdFingerprintGenerator.GetMorganGenerator(
+        radius=FP_RADIUS, fpSize=FP_NBITS)
+except Exception:
+    MORGAN_GENERATOR = None
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -191,6 +200,8 @@ def get_morgan_fp(smi: str):
         mol = Chem.MolFromSmiles(smi)
         if mol is None:
             return None
+        if MORGAN_GENERATOR is not None:
+            return MORGAN_GENERATOR.GetFingerprint(mol)
         return AllChem.GetMorganFingerprintAsBitVect(
             mol, FP_RADIUS, nBits=FP_NBITS)
     except Exception:
@@ -266,7 +277,49 @@ def lipinski_pass(row) -> bool:
 # MAIN PIPELINE
 # ═══════════════════════════════════════════════════════════════════════
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Build CWRA structural analysis report data.")
+    parser.add_argument(
+        '--input-composed',
+        default=INPUT_COMPOSED,
+        help='Path to composed modalities CSV.'
+    )
+    parser.add_argument(
+        '--input-selected',
+        default=INPUT_SELECTED,
+        help='Path to final_selected.csv used for CWRA meta_score merge.'
+    )
+    parser.add_argument(
+        '--output-dir',
+        default=OUTPUT_DIR,
+        help='Directory for report_data outputs (JSON + CSV files).'
+    )
+    parser.add_argument(
+        '--exclude-newref-137',
+        action='store_true',
+        help='Use legacy behavior: exclude newRef_137 from reference actives.'
+    )
+    return parser.parse_args()
+
+
 def main():
+    global INPUT_COMPOSED, INPUT_SELECTED, OUTPUT_DIR
+    global REPORT_JSON, REPORT_SLIM, TOP100_CSV, ACTIVE_CSV
+    args = parse_args()
+    INPUT_COMPOSED = args.input_composed
+    INPUT_SELECTED = args.input_selected
+    OUTPUT_DIR = args.output_dir
+    REPORT_JSON = os.path.join(OUTPUT_DIR, 'report_data.json')
+    REPORT_SLIM = os.path.join(OUTPUT_DIR, 'report_data_slim.json')
+    TOP100_CSV = os.path.join(OUTPUT_DIR, 'top100_compounds.csv')
+    ACTIVE_CSV = os.path.join(OUTPUT_DIR, 'active_classified.csv')
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    include_newref_137 = not args.exclude_newref_137
+    reference_sources = list(BASE_REFERENCE_SOURCES)
+    if include_newref_137:
+        reference_sources.append(NEWREF_SOURCE)
+
     print("="* 70)
     print("VDR CWRA STRUCTURAL ANALYSIS")
     print("="* 70)
@@ -281,13 +334,18 @@ def main():
     print(f"Final selected (CWRA): {len(sel):,} compounds")
 
     # ------------------------------------------------------------------
-    # STEP 2: Exclude newRef_137
+    # STEP 2: Optional newRef_137 exclusion (legacy mode only)
     # ------------------------------------------------------------------
-    print("\n[2/10] Excluding newRef_137...")
     n_before = len(comp)
-    comp = comp[comp['source'] != 'newRef_137'].copy()
-    n_excluded = n_before - len(comp)
-    print(f"Excluded: {n_excluded} compounds (newRef_137)")
+    if include_newref_137:
+        print("\n[2/10] Keeping newRef_137 as reference actives...")
+        n_excluded = 0
+        print("Excluded: 0 compounds")
+    else:
+        print("\n[2/10] Excluding newRef_137 (legacy mode)...")
+        comp = comp[comp['source'] != NEWREF_SOURCE].copy()
+        n_excluded = n_before - len(comp)
+        print(f"Excluded: {n_excluded} compounds ({NEWREF_SOURCE})")
     print(f"Remaining: {len(comp):,}")
 
     # Merge CWRA meta_score via SMILES
@@ -334,7 +392,7 @@ def main():
     # STEP 4: Apply pre-filter on generated compounds
     # ------------------------------------------------------------------
     print("\n[4/10] Applying pre-filter (MW > 600 or RotB > 15)...")
-    ref_mask = df['source'].isin(['initial_370', 'calcitriol'])
+    ref_mask = df['source'].isin(reference_sources)
     gen_mask = df['source'].isin(['G1', 'G2', 'G3'])
 
     pf_mask = gen_mask & ((df['MW'] > MW_THRESHOLD) |
@@ -357,7 +415,7 @@ def main():
     # STEP 5: Define analysis groups
     # ------------------------------------------------------------------
     print("\n[5/10] Defining analysis groups...")
-    ref_active = df_active['source'].isin(['initial_370', 'calcitriol'])
+    ref_active = df_active['source'].isin(reference_sources)
     gen_active = df_active['source'].isin(['G1', 'G2', 'G3'])
     g1_active = df_active['source'] == 'G1'
     g2_active = df_active['source'] == 'G2'
@@ -598,6 +656,8 @@ def main():
 
     # Full report data
     report_data = {
+        'include_newref_137_as_active': bool(include_newref_137),
+        'reference_sources': reference_sources,
         'n_total_before':    int(n_total_before),
         'n_active':          int(n_active),
         'n_ref':             int(ref_active.sum()),

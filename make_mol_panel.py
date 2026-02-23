@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import math
+from pathlib import Path
 import pandas as pd
 
 from rdkit import Chem
@@ -23,6 +24,75 @@ def _build_desc_line(mol):
     hba = rdMolDescriptors.CalcNumHBA(mol)
     rotb = rdMolDescriptors.CalcNumRotatableBonds(mol)
     return f"MW={mw:.1f} logP={logp:.2f} TPSA={tpsa:.1f} HBD={hbd} HBA={hba} RotB={rotb}"
+
+
+def _safe_name(value):
+    return "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in str(value))
+
+
+def _save_grid(mols, legends, out_path, per_row, cell):
+    if not mols:
+        raise RuntimeError("No valid molecules to draw (all SMILES failed RDKit parsing).")
+
+    n_needed = int(math.ceil(len(mols) / per_row) * per_row)
+    while len(mols) < n_needed:
+        mols.append(None)
+        legends.append("")
+
+    img = Draw.MolsToGridImage(
+        mols,
+        molsPerRow=per_row,
+        subImgSize=(cell, cell),
+        legends=legends,
+        useSVG=False,
+    )
+    img.save(str(out_path))
+
+
+def _make_two_source_panels(df, args, smiles_col):
+    if "source" not in df.columns:
+        raise ValueError("source-panel mode requires a 'source' column in the CSV.")
+
+    out_base = Path(args.out)
+    out_suffix = out_base.suffix if out_base.suffix else ".pdf"
+    outputs = []
+
+    for i, src in enumerate(args.sources):
+        df_src = df[df["source"] == src].copy()
+        if df_src.empty:
+            print(f"WARNING: no rows found for source={src}; skipping.")
+            continue
+
+        n_take = min(args.n_per_source, len(df_src))
+        if len(df_src) > n_take:
+            # Reproducible random draw from each source.
+            df_draw = df_src.sample(n=n_take, random_state=args.seed + i)
+        else:
+            df_draw = df_src.copy()
+
+        mols = []
+        legends = []
+        bad = 0
+        for j, (_, row) in enumerate(df_draw.iterrows(), start=1):
+            s = row[smiles_col]
+            m = Chem.MolFromSmiles(s) if isinstance(s, str) else None
+            if m is None:
+                bad += 1
+                continue
+            rownum = int(row["row_in_csv"])
+            legends.append(f"{j} | row {rownum} | {src}\n{_build_desc_line(m)}")
+            mols.append(m)
+
+        out_path = out_base.with_name(f"{out_base.stem}_{_safe_name(src)}{out_suffix}")
+        _save_grid(mols, legends, out_path, args.per_row, args.cell)
+        outputs.append((src, out_path, len(mols), bad, len(df_src)))
+
+    if not outputs:
+        raise RuntimeError("No source panels were generated.")
+
+    for src, out_path, n_drawn, bad, n_total in outputs:
+        print(f"Wrote: {out_path}")
+        print(f"Source={src}: drawn={n_drawn}, bad_smiles={bad}, available={n_total}")
 
 
 def main():
@@ -50,6 +120,29 @@ def main():
         action="store_true",
         help="Disable rendering the reference molecule row.",
     )
+    ap.add_argument(
+        "--source-panel-mode",
+        action="store_true",
+        help="Draw two source-specific panels (default sources: initial_370 and newRef_137).",
+    )
+    ap.add_argument(
+        "--sources",
+        nargs=2,
+        default=["initial_370", "newRef_137"],
+        help="Exactly two source values to draw when --source-panel-mode is enabled.",
+    )
+    ap.add_argument(
+        "--n-per-source",
+        type=int,
+        default=100,
+        help="Number of molecules to draw per source in --source-panel-mode.",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for per-source sampling in --source-panel-mode.",
+    )
     args = ap.parse_args()
 
     df = pd.read_csv(args.csv)
@@ -59,6 +152,10 @@ def main():
     smiles_col = pick_col(df, ["smiles", "SMILES", "canonical_smiles", "rdkit_smiles"])
     if smiles_col is None:
         raise ValueError(f"Could not find a SMILES column in {list(df.columns)}")
+
+    if args.source_panel_mode:
+        _make_two_source_panels(df, args, smiles_col)
+        return
 
     pcol = pick_col(df, ["pval_unweighted", "pval", "p_value"])
     if pcol is None:
@@ -158,24 +255,7 @@ def main():
         mols.append(m)
         legends.append(leg)
 
-    if not mols:
-        raise RuntimeError("No valid molecules to draw (all SMILES failed RDKit parsing).")
-
-    # Ensure we draw exactly per-row layout (pad with None if needed)
-    n_needed = int(math.ceil(len(mols) / args.per_row) * args.per_row)
-    while len(mols) < n_needed:
-        mols.append(None)
-        legends.append("")
-
-    img = Draw.MolsToGridImage(
-        mols,
-        molsPerRow=args.per_row,
-        subImgSize=(args.cell, args.cell),
-        legends=legends,
-        useSVG=False,
-    )
-
-    img.save(args.out)
+    _save_grid(mols, legends, args.out, args.per_row, args.cell)
 
     print(f"Wrote: {args.out}")
     drawn_total = len([m for m in mols if m is not None])

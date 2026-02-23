@@ -1,0 +1,27 @@
+step,key,value
+A,N,16196
+A,n_pos,503
+A,n_rn,2699
+A,bottom_q,0.2
+A,sim_max,0.35
+A,neg_pos_ratio,10
+A,seed,42
+A,used_modality_keys,"['graphdta_kd', 'graphdta_ki', 'graphdta_ic50', 'mltle_pKd', 'vina_score', 'boltz_affinity', 'tankbind_affinity', 'drugban_affinity', 'moltrans_affinity', 'boltz_confidence', 'unimol_similarity']"
+E,mode,bh
+E,alpha,0.1
+E,q,0.1
+E,pval_column,pval_unweighted
+E,select_over,unlabeled
+E,n_universe,1000
+E,n_selected,1000
+E,top_k,1000
+E,pval_type,unweighted
+E,n_pos_selected,0
+E,meta_score_threshold,0.6478199338728781
+DL_filter,n_unlabeled_before,12994
+DL_filter,n_excluded,1122
+DL_filter,n_unlabeled_after,11872
+DL_filter,max_mw,700.0
+DL_filter,max_rotb,15
+DL_filter,min_qed,0.0
+DL_filter,filters_applied,"['MW>700: 378', 'RotB>15: 1020']"

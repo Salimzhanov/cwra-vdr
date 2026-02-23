@@ -1,3 +1,305 @@
+(cwra-vdr) isabella@gaia:~/fazli/code/cwra-vdr$ python cwra.py \
+  -i data/composed_modalities_with_rdkit.csv \
+  -o results/config_search/fair_minmax_a100_mw700_tf0p85 \
+  --method fair \
+  --norm minmax \
+  --objective default \
+  --bedroc \
+  --bedroc-alpha 100 \
+  --max-mw 700 \
+  --train-frac 0.85 \
+  --cv-folds 5 \
+  --seed 42 \
+  --de-workers -1 \
+  --include-newref-137-as-active \
+  --fold-honest-unimol \
+  --unimol-embeddings data/unimol_embeddings.npz \
+  --extra-metrics
+Logging console output to results/config_search/fair_minmax_a100_mw700_tf0p85/logs/cwra_cv_run_20260220_135704.log
+Loaded 16,196 compounds
+Including 'newRef_137' as active source.
+================================================================================
+CWRA REPEATED ACTIVE-SPLIT CV (n=5)
+================================================================================
+[13:57:04] Explicit valence for atom # 1 N, 5, is greater than permitted
+[13:57:04] Explicit valence for atom # 1 Si, 5, is greater than permitted
+
+Drug-likeness filter: 16196 -> 14902 (removed 1294 non-actives: MW>700.0: 389, RotB>15: 903, parse fail: 2)
+
+Dataset: 14,902 compounds, 503 actives (3.38%)
+Modalities: 11
+Method: fair
+CV splits: 5
+Train fraction (actives): 0.850
+CV seed: 42
+DE workers: -1
+Fold-honest Uni-Mol similarity enabled: centroid computed from training actives only per fold.
+
+Fold 1/5: 427 train actives / 76 test actives
+--- Optimizing weights on TRAIN actives (427) ---
+  Running unconstrained_bedroc optimization...
+  Running fair_bedroc optimization...
+  Running entropy_bedroc optimization...
+Computing baselines...
+
+Fold 2/5: 427 train actives / 76 test actives
+--- Optimizing weights on TRAIN actives (427) ---
+  Running unconstrained_bedroc optimization...
+  Running fair_bedroc optimization...
+  Running entropy_bedroc optimization...
+Computing baselines...
+
+Fold 3/5: 427 train actives / 76 test actives
+--- Optimizing weights on TRAIN actives (427) ---
+  Running unconstrained_bedroc optimization...
+  Running fair_bedroc optimization...
+  Running entropy_bedroc optimization...
+Computing baselines...
+
+Fold 4/5: 427 train actives / 76 test actives
+--- Optimizing weights on TRAIN actives (427) ---
+  Running unconstrained_bedroc optimization...
+  Running fair_bedroc optimization...
+  Running entropy_bedroc optimization...
+Computing baselines...
+
+Fold 5/5: 427 train actives / 76 test actives
+--- Optimizing weights on TRAIN actives (427) ---
+  Running unconstrained_bedroc optimization...
+  Running fair_bedroc optimization...
+  Running entropy_bedroc optimization...
+Computing baselines...
+
+Results saved to results/config_search/fair_minmax_a100_mw700_tf0p85/
+Paper table: results/config_search/fair_minmax_a100_mw700_tf0p85/cwra_cv_paper_table.csv
+Mean weights: results/config_search/fair_minmax_a100_mw700_tf0p85/cwra_cv_mean_weights.csv
+Mean rank summary: results/config_search/fair_minmax_a100_mw700_tf0p85/cwra_cv_mean_rank_summary.csv
+
+================================================================================
+RESULTS (method: fair_bedroc) — elapsed: 94.5s
+================================================================================
+  Cutoff            TRAIN EF  (hits)             TEST EF  (hits)             FULL EF  (hits)
+--------------------------------------------------------------------------------------------
+  @ 0.5%       26.13 +/- 0.72 ( 55.4)       18.55 +/- 3.25 (  7.0)       24.98 +/- 0.36 ( 62.4)
+  @   1%       22.53 +/- 1.16 ( 96.2)       21.32 +/- 7.17 ( 16.2)       22.35 +/- 0.23 (112.4)
+  @ 2.5%       14.67 +/- 0.57 (156.4)       14.13 +/- 2.62 ( 26.8)       14.59 +/- 0.23 (183.2)
+  @   5%        9.73 +/- 0.14 (207.8)        9.47 +/- 0.67 ( 36.0)        9.70 +/- 0.05 (243.8)
+  @  10%        6.98 +/- 0.54 (298.2)        7.13 +/- 0.80 ( 54.2)        7.01 +/- 0.56 (352.4)
+  @  20%        4.22 +/- 0.47 (360.0)        4.18 +/- 0.55 ( 63.6)        4.21 +/- 0.48 (423.6)
+
+--- Overfitting diagnostics (means) ---
+  EF@1%  train=22.53  test=21.32  gap=1.21 (5.4% drop)
+  EF@5%  train=9.73  test=9.47  gap=0.26 (2.7% drop)
+  EF@10%  train=6.98  test=7.13  gap=-0.15 (-2.1% drop)
+
+--- Test-set comparison (mean across folds) ---
+  CWRA vs equal-weight: +97.6%
+  CWRA vs best-indiv:   +30.6%
+  DE Unconstrained vs best-indiv: +25.8%
+  DE Entropy vs best-indiv: +21.0%
+  CWRA vs best-indiv (all EF): EF@0.5% -7.9%, EF@1% +30.6%, EF@2.5% +15.5%, EF@5% -14.3%, EF@10% -22.8%, EF@20% -16.3%
+
+Optimized weights (mean across folds):
+         GraphDTA_IC50: 0.2421 (24.2%)
+                  Vina: 0.2060 (20.6%)
+      Boltz_confidence: 0.1553 (15.5%)
+               DrugBAN: 0.1008 (10.1%)
+              TankBind: 0.0695 (6.9%)
+        Boltz_affinity: 0.0532 (5.3%)
+              MolTrans: 0.0416 (4.2%)
+           GraphDTA_Kd: 0.0369 (3.7%)
+            UniMol_sim: 0.0344 (3.4%)
+           GraphDTA_Ki: 0.0303 (3.0%)
+             MLTLE_pKd: 0.0300 (3.0%)
+
+  Normalized entropy: 0.870 +/- 0.014
+  Significant (>5%): 5.40 +/- 0.49/11
+
+--- Individual modality performance (test set, mean +/- std) ---
+Modality          EF@1%           EF@2.5%         EF@5%           EF@10%         EF@20%       
+----------------------------------------------------------------------------------------------
+GraphDTA_IC50     16.32 +/- 3.96  12.23 +/- 1.35  8.32 +/- 0.76   4.61 +/- 0.55  2.72 +/- 0.24
+Boltz_confidence  12.90 +/- 3.16  11.81 +/- 1.51  11.05 +/- 0.78  9.24 +/- 0.26  5.00 +/- 0.00
+GraphDTA_Kd       10.79 +/- 2.11  4.43 +/- 0.86   2.58 +/- 0.39   1.79 +/- 0.18  1.30 +/- 0.11
+DrugBAN           3.16 +/- 1.05   2.00 +/- 0.70   1.68 +/- 0.49   1.34 +/- 0.21  1.41 +/- 0.17
+Vina              3.16 +/- 1.05   1.48 +/- 0.61   1.74 +/- 0.59   2.08 +/- 0.23  1.88 +/- 0.23
+MLTLE_pKd         2.90 +/- 1.93   1.90 +/- 0.54   1.58 +/- 0.44   1.74 +/- 0.24  1.41 +/- 0.14
+UniMol_sim        2.90 +/- 1.53   3.90 +/- 1.32   3.00 +/- 0.83   2.42 +/- 0.40  1.82 +/- 0.24
+Boltz_affinity    1.05 +/- 0.98   4.43 +/- 1.27   5.47 +/- 0.99   5.42 +/- 0.74  4.04 +/- 0.29
+MolTrans          0.26 +/- 0.53   0.42 +/- 0.21   0.63 +/- 0.27   0.53 +/- 0.30  0.58 +/- 0.21
+TankBind          0.26 +/- 0.53   0.53 +/- 0.58   0.32 +/- 0.26   0.16 +/- 0.13  0.22 +/- 0.15
+GraphDTA_Ki       0.00 +/- 0.00   0.00 +/- 0.00   0.21 +/- 0.26   0.26 +/- 0.14  0.29 +/- 0.12
+
+--- Combination methods (test set, mean +/- std) ---
+Method                     EF@1%           EF@2.5%         EF@5%          EF@10%         EF@20%       
+------------------------------------------------------------------------------------------------------
+DE Fair (BEDROC)           21.32 +/- 6.41  14.13 +/- 2.34  9.47 +/- 0.60  7.13 +/- 0.72  4.18 +/- 0.49
+DE Unconstrained (BEDROC)  20.53 +/- 5.43  14.34 +/- 2.17  9.90 +/- 0.66  7.40 +/- 0.37  4.82 +/- 0.24
+DE Entropy (BEDROC)        19.74 +/- 5.13  14.23 +/- 1.94  9.74 +/- 0.33  6.95 +/- 0.33  4.03 +/- 0.12
+Equal Weights              10.79 +/- 2.81  7.80 +/- 1.22   6.32 +/- 1.30  5.18 +/- 0.52  3.21 +/- 0.15
+Random (mean of 100)       8.61 +/- 1.38   6.34 +/- 1.08   5.07 +/- 0.64  4.36 +/- 0.32  2.85 +/- 0.14
+
+--- Extra metrics (test set, mean +/- std) ---
+AUROC:  0.90 +/- 0.04
+AUPRC:  0.07 +/- 0.02
+BEDROC: 0.23 +/- 0.04
+
+-----------------------------------------
+
+
+python pu_conformal.py \
+  --input data/composed_modalities_with_rdkit.csv \
+  --outdir results/final_fair_minmax_a100_mw700_tf0p85/pipeline \
+  --score-source cwra \
+  --cwra-weights-csv results/final_fair_minmax_a100_mw700_tf0p85/cwra_cv_mean_weights.csv \
+  --cwra-norm minmax \
+  --include-newref-137-as-active \
+  --seed 42 \
+  --max-mw 700 \
+  --max-rotb 15 \
+  --pval-type unweighted
+
+
+
+
+
+
+python cwra.py   -i data/composed_modalities_with_rdkit.csv   -o results/config_search/unconstrained_default --fold-honest-unimol --unimol-embeddings data/unimol_embeddings.npz --objective default   --train-frac 0.9 --max-mw 700   --norm minmax   --cv-folds 5   --seed 42   --de-workers -1   --extra-metrics
+
+(cwra-vdr) isabella@gaia:~/fazli/code/cwra-vdr$ python cwra.py   -i data/composed_modalities_with_rdkit.csv   -o results/config_search/unconstrained_default   --fold-honest-unimol   --unimol-embeddings data/unimol_embeddings.npz --objective default   --train-frac 0.9   --max-mw 700   --norm minmax   --cv-folds 5   --seed 42   --de-workers -1   --extra-metrics
+Logging console output to results/config_search/unconstrained_default/logs/cwra_cv_run_20260220_092937.log
+Loaded 16,196 compounds
+================================================================================
+CWRA REPEATED ACTIVE-SPLIT CV (n=5)
+================================================================================
+[09:29:37] Explicit valence for atom # 1 N, 5, is greater than permitted
+[09:29:38] Explicit valence for atom # 1 Si, 5, is greater than permitted
+
+Drug-likeness filter: 16059 -> 14765 (removed 1294 non-actives: MW>700.0: 389, RotB>15: 903, parse fail: 2)
+
+Dataset: 14,765 compounds, 366 actives (2.48%)
+Modalities: 11
+Method: fair
+CV splits: 5
+Train fraction (actives): 0.900
+CV seed: 42
+DE workers: -1
+Fold-honest Uni-Mol similarity enabled: centroid computed from training actives only per fold.
+
+Fold 1/5: 329 train actives / 37 test actives
+--- Optimizing weights on TRAIN actives (329) ---
+  Running unconstrained optimization...
+  Running fair optimization...
+  Running entropy optimization...
+Computing baselines...
+
+Fold 2/5: 329 train actives / 37 test actives
+--- Optimizing weights on TRAIN actives (329) ---
+  Running unconstrained optimization...
+  Running fair optimization...
+  Running entropy optimization...
+Computing baselines...
+
+Fold 3/5: 329 train actives / 37 test actives
+--- Optimizing weights on TRAIN actives (329) ---
+  Running unconstrained optimization...
+  Running fair optimization...
+  Running entropy optimization...
+Computing baselines...
+
+Fold 4/5: 329 train actives / 37 test actives
+--- Optimizing weights on TRAIN actives (329) ---
+  Running unconstrained optimization...
+  Running fair optimization...
+  Running entropy optimization...
+Computing baselines...
+
+Fold 5/5: 329 train actives / 37 test actives
+--- Optimizing weights on TRAIN actives (329) ---
+  Running unconstrained optimization...
+  Running fair optimization...
+  Running entropy optimization...
+Computing baselines...
+
+Results saved to results/config_search/unconstrained_default/
+Paper table: results/config_search/unconstrained_default/cwra_cv_paper_table.csv
+Mean weights: results/config_search/unconstrained_default/cwra_cv_mean_weights.csv
+Mean rank summary: results/config_search/unconstrained_default/cwra_cv_mean_rank_summary.csv
+
+================================================================================
+RESULTS (method: fair) — elapsed: 66.4s
+================================================================================
+  Cutoff            TRAIN EF  (hits)             TEST EF  (hits)             FULL EF  (hits)
+--------------------------------------------------------------------------------------------
+  @ 0.5%       22.50 +/- 1.35 ( 36.6)       21.87 +/- 8.64 (  4.0)       22.44 +/- 0.84 ( 40.6)
+  @   1%       21.74 +/- 0.85 ( 71.2)       24.43 +/- 6.65 (  9.0)       22.01 +/- 0.23 ( 80.2)
+  @   5%        8.91 +/- 0.33 (146.6)        9.41 +/- 2.95 ( 17.4)        8.96 +/- 0.07 (164.0)
+  @  10%        7.06 +/- 0.72 (232.2)        7.30 +/- 0.83 ( 27.0)        7.08 +/- 0.70 (259.2)
+  @  20%        4.25 +/- 0.40 (279.4)        4.24 +/- 0.35 ( 31.4)        4.25 +/- 0.39 (310.8)
+  @  30%        3.03 +/- 0.22 (299.4)        2.99 +/- 0.20 ( 33.2)        3.03 +/- 0.21 (332.6)
+
+--- Overfitting diagnostics (means) ---
+  EF@1%  train=21.74  test=24.43  gap=-2.69 (-12.4% drop)
+  EF@5%  train=8.91  test=9.41  gap=-0.49 (-5.5% drop)
+  EF@10%  train=7.06  test=7.30  gap=-0.24 (-3.4% drop)
+
+--- Test-set comparison (mean across folds) ---
+  CWRA vs equal-weight: +181.2%
+  CWRA vs best-indiv:   +36.4%
+  DE Unconstrained vs best-indiv: +15.2%
+  DE Entropy vs best-indiv: +30.3%
+  CWRA vs best-indiv (all EF): EF@0.5% -20.0%, EF@1% +36.4%, EF@5% -15.5%, EF@10% -25.0%, EF@20% -15.1%, EF@30% -10.3%
+
+Optimized weights (mean across folds):
+         GraphDTA_IC50: 0.2108 (21.1%)
+               DrugBAN: 0.2094 (20.9%)
+      Boltz_confidence: 0.1665 (16.6%)
+        Boltz_affinity: 0.1409 (14.1%)
+              TankBind: 0.0806 (8.1%)
+                  Vina: 0.0408 (4.1%)
+            UniMol_sim: 0.0304 (3.0%)
+             MLTLE_pKd: 0.0303 (3.0%)
+              MolTrans: 0.0301 (3.0%)
+           GraphDTA_Kd: 0.0301 (3.0%)
+           GraphDTA_Ki: 0.0300 (3.0%)
+
+  Normalized entropy: 0.867 +/- 0.008
+  Significant (>5%): 5.20 +/- 0.40/11
+
+--- Individual modality performance (test set, mean +/- std) ---
+Modality          EF@1%           EF@5%           EF@10%         EF@20%         EF@30%       
+---------------------------------------------------------------------------------------------
+GraphDTA_IC50     17.92 +/- 6.78  7.25 +/- 2.57   4.33 +/- 0.97  2.49 +/- 0.45  1.86 +/- 0.26
+Boltz_confidence  13.57 +/- 4.54  11.14 +/- 1.39  9.73 +/- 0.17  5.00 +/- 0.00  3.33 +/- 0.00
+MLTLE_pKd         8.14 +/- 3.43   2.81 +/- 1.58   2.92 +/- 0.88  2.05 +/- 0.48  1.82 +/- 0.38
+DrugBAN           5.43 +/- 3.43   2.16 +/- 0.97   1.95 +/- 0.55  1.68 +/- 0.25  1.32 +/- 0.12
+Vina              3.26 +/- 2.03   1.62 +/- 0.97   1.84 +/- 0.79  1.70 +/- 0.47  1.69 +/- 0.31
+Boltz_affinity    2.71 +/- 0.00   6.81 +/- 1.00   5.25 +/- 0.79  3.89 +/- 0.34  2.88 +/- 0.16
+UniMol_sim        2.17 +/- 2.03   2.70 +/- 0.68   2.00 +/- 0.50  1.65 +/- 0.32  1.71 +/- 0.31
+TankBind          1.09 +/- 1.33   0.54 +/- 0.34   0.27 +/- 0.17  0.27 +/- 0.15  0.27 +/- 0.10
+GraphDTA_Kd       0.54 +/- 1.09   0.54 +/- 0.68   0.81 +/- 0.66  1.03 +/- 0.39  1.15 +/- 0.33
+GraphDTA_Ki       0.00 +/- 0.00   0.11 +/- 0.22   0.11 +/- 0.13  0.16 +/- 0.10  0.16 +/- 0.11
+MolTrans          0.00 +/- 0.00   0.11 +/- 0.22   0.22 +/- 0.26  0.49 +/- 0.20  0.59 +/- 0.12
+
+--- Combination methods (test set, mean +/- std) ---
+Method                EF@1%           EF@5%          EF@10%         EF@20%         EF@30%       
+------------------------------------------------------------------------------------------------
+DE Fair               24.43 +/- 5.95  9.41 +/- 2.64  7.30 +/- 0.75  4.24 +/- 0.32  2.99 +/- 0.17
+DE Unconstrained      20.63 +/- 7.98  9.30 +/- 2.33  7.52 +/- 0.86  4.32 +/- 0.56  3.05 +/- 0.32
+DE Entropy            23.35 +/- 9.02  9.19 +/- 2.24  7.14 +/- 0.61  4.11 +/- 0.46  2.85 +/- 0.23
+Equal Weights         8.69 +/- 3.60   6.16 +/- 1.95  4.49 +/- 0.78  2.68 +/- 0.68  2.09 +/- 0.44
+Random (mean of 100)  7.47 +/- 2.57   4.67 +/- 1.26  3.97 +/- 0.71  2.59 +/- 0.37  2.00 +/- 0.23
+
+--- Extra metrics (test set, mean +/- std) ---
+AUROC:  0.90 +/- 0.02
+AUPRC:  0.05 +/- 0.02
+BEDROC: 0.23 +/- 0.06
+
+Done! Elapsed: 66.4s
+
+
+
+
 (cwra-vdr) isabella@gaia:~/fazli/code/cwra-vdr$ python cwra2.py -i data/composed_modalities_with_rdkit.csv \
 -o results/v0_baseline --norm minmax  --max-mw 600 --max-rotb 15 --objective default --include-boltz-confidence \
 --include-unimol --cv-folds 5 --seed 42 --latex --extra-metrics  --bedroc --bedroc-alpha 80.0
