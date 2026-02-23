@@ -20,10 +20,11 @@ REQUIRED_IMPORTS = [
 ]
 
 ENTRYPOINTS = [
-    [sys.executable, "cwra_cv_v2.py", "--help"],
-    [sys.executable, "run_pu_conformal_pipeline.py", "--help"],
+    [sys.executable, "cwra.py", "--help"],
+    [sys.executable, "pu_conformal.py", "--help"],
     [sys.executable, "create_cwra_tables.py", "--help"],
     [sys.executable, "make_mol_panel.py", "--help"],
+    [sys.executable, "run_cwra.py", "--help"],
 ]
 
 

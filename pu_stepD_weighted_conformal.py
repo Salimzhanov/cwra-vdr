@@ -14,7 +14,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from cwra_compat import CWRAConfig, normalize_modalities
+from cwra import CWRAConfig, normalize_modalities
 from pu_descriptors import compute_physchem_descriptors
 from pu_meta_model import build_feature_matrix, standardize_features
 from shift_weights import compute_importance_weights

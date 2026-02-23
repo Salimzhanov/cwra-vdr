@@ -13,7 +13,7 @@ from typing import Optional
 
 import pandas as pd
 
-from cwra_compat import CWRAConfig, normalize_modalities
+from cwra import CWRAConfig, normalize_modalities
 from pu_rn import build_reliable_negative_mask
 
 logger = logging.getLogger(__name__)

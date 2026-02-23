@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create LaTeX tables from cwra_cv_v2 cross-validation outputs."""
+"""Create LaTeX tables from CWRA cross-validation outputs."""
 
 from __future__ import annotations
 
@@ -318,7 +318,7 @@ def _load_mean_rank(results_dir: Path, prefix: str) -> pd.DataFrame:
     if "test_mean_rank" not in indiv.columns or "test_mean_rank" not in methods.columns:
         raise ValueError(
             f"Missing {summary_path} and fallback fold files do not contain test_mean_rank. "
-            "Re-run cwra_cv_v2.py with the updated exporter."
+            "Re-run cwra.py with the updated exporter."
         )
 
     indiv_summary = (
@@ -386,8 +386,8 @@ def _build_weights_meanrank_table(weights_df: pd.DataFrame, mean_rank_df: pd.Dat
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create LaTeX tables from cwra_cv_v2 outputs.")
-    parser.add_argument("--results-dir", required=True, help="Directory containing cwra_cv_v2 CSV outputs")
+    parser = argparse.ArgumentParser(description="Create LaTeX tables from CWRA cross-validation outputs.")
+    parser.add_argument("--results-dir", required=True, help="Directory containing CWRA cross-validation CSV outputs")
     parser.add_argument("--prefix", default=None, help="File prefix (auto-detected from *_paper_table.csv if omitted)")
     parser.add_argument("--out-concise", default="fusion_performance_concise.tex", help="Paper table (fusion-only)")
     parser.add_argument("--out-extended", default="fusion_performance_extended.tex", help="Supplement table (individual + fusion)")

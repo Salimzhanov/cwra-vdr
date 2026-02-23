@@ -14,7 +14,7 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from cwra_compat import CWRAConfig, OPTIMIZERS, normalize_modalities
+from cwra import CWRAConfig, OPTIMIZERS, normalize_modalities
 
 logger = logging.getLogger(__name__)
 

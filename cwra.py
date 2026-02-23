@@ -32,15 +32,13 @@ import sys
 import time
 
 warnings.filterwarnings('ignore')
-
-# CHANGE 4: objective presets for cutoff weights
 OBJECTIVE_PRESETS = {
     "default":    {1: 5, 5: 2, 10: 1},
     "sharp":      {0.5: 10, 1: 5, 5: 1},
     "top_heavy":  {0.25: 10, 0.5: 5, 1: 2},
     "balanced":   {1: 1, 5: 1, 10: 1, 20: 1},
 }
-CUTOFFS = [0.5, 1, 2.5, 5, 10, 20]  # CHANGE 4
+CUTOFFS = [0.5, 1, 2.5, 5, 10, 20]
 
 def _print_table(title: str, headers: List[str], rows: List[List[str]]) -> None:
     if not rows:
@@ -76,14 +74,14 @@ class TeeStream:
         return any(getattr(stream, "isatty", lambda: False)() for stream in self.streams)
 
 
-def project_to_capped_simplex(  # CHANGE 7
+def project_to_capped_simplex(
     v: np.ndarray,
     lo: float | np.ndarray,
     hi: float | np.ndarray,
     tol: float = 1e-12,
     max_iter: int = 80,
 ) -> np.ndarray:
-    """Project v onto {w | sum(w)=1, lo<=w<=hi} via bisection on lambda."""  # CHANGE 7
+    """Project v onto {w | sum(w)=1, lo<=w<=hi} via bisection on lambda."""
     v = np.asarray(v, dtype=float)
     n = v.size
     lo_arr = np.full(n, lo, dtype=float) if np.isscalar(lo) else np.asarray(lo, dtype=float)
@@ -120,8 +118,8 @@ def project_to_capped_simplex(  # CHANGE 7
     return np.clip(v - lam_mid, lo_arr, hi_arr)
 
 
-def normalize_weights(weights: np.ndarray, min_weight: float, max_weight: float) -> np.ndarray:  # CHANGE 7
-    """Normalize weights to satisfy bounds and sum-to-1."""  # CHANGE 7
+def normalize_weights(weights: np.ndarray, min_weight: float, max_weight: float) -> np.ndarray:
+    """Normalize weights to satisfy bounds and sum-to-1."""
     w = np.asarray(weights, dtype=float)
     if min_weight <= 0.0 and max_weight >= 1.0:
         s = w.sum()
@@ -157,10 +155,10 @@ class CWRAConfig:
     exclude_sources: List[str] = field(default_factory=lambda: ['newRef_137'])
 
     method: str = 'fair'
-    norm_method: str = "minmax"  # CHANGE 1: normalization method ("minmax", "rank", "robust")
-    objective_preset: str = "default"  # CHANGE 4
-    use_bedroc: bool = False  # CHANGE 4
-    bedroc_alpha: float = 80.0  # CHANGE 4
+    norm_method: str = "minmax"
+    objective_preset: str = "default"
+    use_bedroc: bool = False
+    bedroc_alpha: float = 80.0
 
     min_weight: float = 0.03
     max_weight: float = 0.4
@@ -171,23 +169,23 @@ class CWRAConfig:
 
     cutoff_weights: Dict[int, float] = field(default_factory=lambda: {1: 5, 5: 2, 10: 1})
 
-    de_maxiter: int = 1000  # CHANGE 6
+    de_maxiter: int = 1000
     de_seed: int = 42
-    de_n_seeds: int = 1  # CHANGE 6
+    de_n_seeds: int = 1
     de_workers: int = 1  # DE parallel workers; use -1 for all CPUs
 
     n_random_trials: int = 100
 
-    max_mw: float = 0.0         # CHANGE 2: 0 = disabled
-    max_rotb: int = 0           # CHANGE 2: 0 = disabled
-    smiles_col: str = "smiles"  # CHANGE 2: SMILES column name
-    drop_modalities: List[str] = field(default_factory=list)  # CHANGE 5
-    auto_prune_threshold: float = 0.0  # CHANGE 5
-    strict_cv: bool = False  # CHANGE 7
+    max_mw: float = 0.0
+    max_rotb: int = 0
+    smiles_col: str = "smiles"
+    drop_modalities: List[str] = field(default_factory=list)
+    auto_prune_threshold: float = 0.0
+    strict_cv: bool = False
     fold_honest_unimol: bool = False  # Fold-honest Uni-Mol in CV only
     unimol_embeddings_path: Optional[str] = None  # .npz with smiles + embeddings
-    report_extra_metrics: bool = True  # CHANGE 8
-    report_bedroc_alpha: float = 20.0  # CHANGE 8
+    report_extra_metrics: bool = True
+    report_bedroc_alpha: float = 20.0
 
     # --- Train/test split settings (single split only) ---
     train_frac: float = 0.7       # fraction of actives used for training
@@ -195,7 +193,7 @@ class CWRAConfig:
 
     output_prefix: str = 'cwra_cv'
 
-    def __post_init__(self):  # CHANGE 4
+    def __post_init__(self):
         if self.objective_preset in OBJECTIVE_PRESETS:
             self.cutoff_weights = OBJECTIVE_PRESETS[self.objective_preset]
         if self.de_workers == 0 or self.de_workers < -1:
@@ -206,12 +204,12 @@ class CWRAConfig:
 # CORE FUNCTIONS
 # =============================================================================
 
-def normalize_modalities(  # CHANGE 1: add norm_method parameter
+def normalize_modalities(
     df: pd.DataFrame,
     modalities: Dict[str, Tuple[str, str]],
     norm_method: str = "minmax",
 ) -> Tuple[np.ndarray, List[str], List[str]]:
-    """Normalize modality columns to [0, 1] range with consistent direction."""  # CHANGE 1
+    """Normalize modality columns to [0, 1] range with consistent direction."""
     available_cols = []
     mod_names = []
     norm_data = []
@@ -223,17 +221,17 @@ def normalize_modalities(  # CHANGE 1: add norm_method parameter
         x = df[col].values.copy().astype(float)
         x = np.nan_to_num(x, nan=np.nanmean(x[~np.isnan(x)]))
 
-        if norm_method == "minmax":  # CHANGE 1
+        if norm_method == "minmax":
             xmin, xmax = x.min(), x.max()
             if xmax > xmin:
                 normalized = (x - xmin) / (xmax - xmin)
             else:
                 normalized = np.zeros_like(x)
-        elif norm_method == "rank":  # CHANGE 1
+        elif norm_method == "rank":
             ranked = stats.rankdata(x, method='average') / len(x)
             rmin, rmax = ranked.min(), ranked.max()
             normalized = (ranked - rmin) / (rmax - rmin) if rmax > rmin else np.zeros_like(x)
-        elif norm_method == "robust":  # CHANGE 1
+        elif norm_method == "robust":
             p1, p99 = np.percentile(x, [1, 99])
             x_clipped = np.clip(x, p1, p99)
             xmin, xmax = x_clipped.min(), x_clipped.max()
@@ -241,7 +239,7 @@ def normalize_modalities(  # CHANGE 1: add norm_method parameter
                 normalized = (x_clipped - xmin) / (xmax - xmin)
             else:
                 normalized = np.zeros_like(x)
-        else:  # CHANGE 1
+        else:
             raise ValueError(f"Unknown norm_method: {norm_method}")
 
         if direction == 'low':
@@ -254,7 +252,7 @@ def normalize_modalities(  # CHANGE 1: add norm_method parameter
     return np.column_stack(norm_data), available_cols, mod_names
 
 
-def normalize_modalities_cv(  # CHANGE 7
+def normalize_modalities_cv(
     df: pd.DataFrame,
     modalities: Dict[str, Tuple[str, str]],
     norm_method: str = "minmax",
@@ -288,12 +286,12 @@ def normalize_modalities_cv(  # CHANGE 7
         x = np.nan_to_num(x, nan=np.nanmean(x[~np.isnan(x)]))
 
         if norm_method == "rank":
-            x_fit = x[~exclude_mask] if exclude_mask is not None else x  # CHANGE 7
+            x_fit = x[~exclude_mask] if exclude_mask is not None else x
             if x_fit.size == 0:
                 x_fit = x
             sorted_fit = np.sort(x_fit)
-            ranks = np.searchsorted(sorted_fit, x, side="right") / len(sorted_fit)  # CHANGE 7
-            normalized = ranks.astype(float)  # CHANGE 7
+            ranks = np.searchsorted(sorted_fit, x, side="right") / len(sorted_fit)
+            normalized = ranks.astype(float)
         elif norm_method == "robust":
             x_fit = x[~exclude_mask] if exclude_mask is not None else x
             p1, p99 = np.percentile(x_fit, [1, 99])
@@ -428,7 +426,7 @@ def compute_fold_honest_unimol_similarity(
     return np.clip(sim, -1.0, 1.0)
 
 
-def apply_druglike_filter(  # CHANGE 2
+def apply_druglike_filter(
     df_pool: pd.DataFrame,
     active_mask: np.ndarray,
     config: CWRAConfig,
@@ -440,7 +438,7 @@ def apply_druglike_filter(  # CHANGE 2
 
     Returns: (df_filtered, active_mask_filtered, report_dict)
     """
-    if config.max_mw <= 0 and config.max_rotb <= 0:  # CHANGE 2
+    if config.max_mw <= 0 and config.max_rotb <= 0:
         return df_pool, active_mask, None
 
     try:
@@ -507,8 +505,8 @@ def apply_druglike_filter(  # CHANGE 2
     return df_filtered, active_mask_filtered, report
 
 
-def filter_modalities(modalities: Dict[str, Tuple[str, str]], drop_names: List[str]) -> Dict[str, Tuple[str, str]]:  # CHANGE 5
-    """Remove modalities by key or display name (case-insensitive)."""  # CHANGE 5
+def filter_modalities(modalities: Dict[str, Tuple[str, str]], drop_names: List[str]) -> Dict[str, Tuple[str, str]]:
+    """Remove modalities by key or display name (case-insensitive)."""
     if not drop_names:
         return modalities
     drop_exact = {d.strip() for d in drop_names if isinstance(d, str) and d.strip()}
@@ -529,7 +527,7 @@ def filter_modalities(modalities: Dict[str, Tuple[str, str]], drop_names: List[s
     return filtered
 
 
-def compute_ef(scores: np.ndarray, active_mask: np.ndarray, cutoff_pct: float) -> Tuple[float, int, int]:  # CHANGE 4
+def compute_ef(scores: np.ndarray, active_mask: np.ndarray, cutoff_pct: float) -> Tuple[float, int, int]:
     """Compute enrichment factor at given cutoff percentage."""
     N = len(scores)
     A = active_mask.sum()
@@ -542,54 +540,54 @@ def compute_ef(scores: np.ndarray, active_mask: np.ndarray, cutoff_pct: float) -
     return ef, int(hits), k
 
 
-def evaluate_weights(  # CHANGE 4
+def evaluate_weights(
     weights: np.ndarray,
     X: np.ndarray,
     active_mask: np.ndarray,
     cutoffs: List[float] = None,
-    extra_metrics: bool = False,  # CHANGE 8
-    bedroc_alpha: float = 20.0,  # CHANGE 8
+    extra_metrics: bool = False,
+    bedroc_alpha: float = 20.0,
 ) -> Dict:
     """Evaluate weights and return performance dict."""
     if cutoffs is None:
-        cutoffs = CUTOFFS  # CHANGE 4
+        cutoffs = CUTOFFS
     scores = X @ weights
     results = {}
     for cutoff in cutoffs:
         ef, hits, k = compute_ef(scores, active_mask, cutoff)
         results[cutoff] = {'ef': ef, 'hits': hits, 'k': k}
-    if extra_metrics:  # CHANGE 8
+    if extra_metrics:
         results['extra'] = compute_extra_metrics(
             scores, active_mask, bedroc_alpha=bedroc_alpha
         )
     return results
 
 
-def compute_bedroc(scores: np.ndarray, active_mask: np.ndarray, alpha: float = 20.0) -> float:  # CHANGE 4
-    """BEDROC (Truchon & Bayly 2007). Requires RDKit."""  # CHANGE 4
+def compute_bedroc(scores: np.ndarray, active_mask: np.ndarray, alpha: float = 20.0) -> float:
+    """BEDROC (Truchon & Bayly 2007). Requires RDKit."""
     try:
         from rdkit.ML.Scoring.Scoring import CalcBEDROC  # type: ignore
     except ImportError:
-        warnings.warn("RDKit ML module not available; BEDROC = NaN")  # CHANGE 4
+        warnings.warn("RDKit ML module not available; BEDROC = NaN")
         return float('nan')
     n_actives = int(active_mask.sum())
     if n_actives == 0 or n_actives == len(scores):
         return 0.0
-    order = np.argsort(-scores)  # CHANGE 8
-    scored = [(float(scores[i]), int(active_mask[i])) for i in order]  # CHANGE 8
+    order = np.argsort(-scores)
+    scored = [(float(scores[i]), int(active_mask[i])) for i in order]
     try:
-        return float(CalcBEDROC(scored, 1, alpha))  # CHANGE 8
+        return float(CalcBEDROC(scored, 1, alpha))
     except Exception:
-        warnings.warn("RDKit BEDROC computation failed; BEDROC = NaN")  # CHANGE 8
+        warnings.warn("RDKit BEDROC computation failed; BEDROC = NaN")
         return float('nan')
 
 
-def compute_extra_metrics(scores: np.ndarray, active_mask: np.ndarray, bedroc_alpha: float = 20.0) -> Dict[str, float]:  # CHANGE 8
-    """Compute AUROC, AUPRC, and BEDROC for a score vector."""  # CHANGE 8
+def compute_extra_metrics(scores: np.ndarray, active_mask: np.ndarray, bedroc_alpha: float = 20.0) -> Dict[str, float]:
+    """Compute AUROC, AUPRC, and BEDROC for a score vector."""
     try:
         from sklearn.metrics import roc_auc_score, average_precision_score  # type: ignore
     except ImportError:
-        warnings.warn("sklearn not available; AUROC/AUPRC = NaN")  # CHANGE 8
+        warnings.warn("sklearn not available; AUROC/AUPRC = NaN")
         return {'auroc': float('nan'), 'auprc': float('nan'), 'bedroc': float('nan')}
 
     n_actives = int(active_mask.sum())
@@ -608,22 +606,22 @@ def compute_extra_metrics(scores: np.ndarray, active_mask: np.ndarray, bedroc_al
 # OBJECTIVE FUNCTIONS (unchanged from original)
 # =============================================================================
 
-def objective_unconstrained(weights, X, active_mask, cutoff_weights, min_weight, max_weight):  # CHANGE 7
-    w_norm = normalize_weights(weights, min_weight, max_weight)  # CHANGE 7
+def objective_unconstrained(weights, X, active_mask, cutoff_weights, min_weight, max_weight):
+    w_norm = normalize_weights(weights, min_weight, max_weight)
     scores = X @ w_norm
     total = sum(w * compute_ef(scores, active_mask, c)[0] for c, w in cutoff_weights.items())
     return -total
 
 
-def objective_fair(weights, X, active_mask, cutoff_weights, min_weight, max_weight):  # CHANGE 7
-    w_norm = normalize_weights(weights, min_weight, max_weight)  # CHANGE 7
+def objective_fair(weights, X, active_mask, cutoff_weights, min_weight, max_weight):
+    w_norm = normalize_weights(weights, min_weight, max_weight)
     scores = X @ w_norm
     total = sum(w * compute_ef(scores, active_mask, c)[0] for c, w in cutoff_weights.items())
     return -total
 
 
-def objective_entropy(weights, X, active_mask, cutoff_weights, entropy_weight, n_mod, min_weight, max_weight):  # CHANGE 7
-    w_norm = normalize_weights(weights, min_weight, max_weight)  # CHANGE 7
+def objective_entropy(weights, X, active_mask, cutoff_weights, entropy_weight, n_mod, min_weight, max_weight):
+    w_norm = normalize_weights(weights, min_weight, max_weight)
     scores = X @ w_norm
     total_ef = sum(w * compute_ef(scores, active_mask, c)[0] for c, w in cutoff_weights.items())
     w_safe = np.clip(w_norm, 1e-10, 1)
@@ -631,20 +629,20 @@ def objective_entropy(weights, X, active_mask, cutoff_weights, entropy_weight, n
     return -(total_ef + entropy_weight * total_ef * entropy)
 
 
-def objective_unconstrained_bedroc(weights, X, active_mask, alpha, min_weight, max_weight):  # CHANGE 7
-    w_norm = normalize_weights(weights, min_weight, max_weight)  # CHANGE 7
+def objective_unconstrained_bedroc(weights, X, active_mask, alpha, min_weight, max_weight):
+    w_norm = normalize_weights(weights, min_weight, max_weight)
     scores = X @ w_norm
     return -compute_bedroc(scores, active_mask, alpha)
 
 
-def objective_fair_bedroc(weights, X, active_mask, alpha, min_weight, max_weight):  # CHANGE 7
-    w_norm = normalize_weights(weights, min_weight, max_weight)  # CHANGE 7
+def objective_fair_bedroc(weights, X, active_mask, alpha, min_weight, max_weight):
+    w_norm = normalize_weights(weights, min_weight, max_weight)
     scores = X @ w_norm
     return -compute_bedroc(scores, active_mask, alpha)
 
 
-def objective_entropy_bedroc(weights, X, active_mask, alpha, entropy_weight, n_mod, min_weight, max_weight):  # CHANGE 7
-    w_norm = normalize_weights(weights, min_weight, max_weight)  # CHANGE 7
+def objective_entropy_bedroc(weights, X, active_mask, alpha, entropy_weight, n_mod, min_weight, max_weight):
+    w_norm = normalize_weights(weights, min_weight, max_weight)
     scores = X @ w_norm
     bed = compute_bedroc(scores, active_mask, alpha)
     w_safe = np.clip(w_norm, 1e-10, 1)
@@ -673,16 +671,16 @@ def _de_call_kwargs(config, seed: int) -> Dict[str, object]:
 def optimize_unconstrained(X, active_mask, config):
     n_mod = X.shape[1]
     bounds = [(0.01, 1.0)] * n_mod
-    best_weights = None  # CHANGE 6
-    best_obj = float('inf')  # CHANGE 6
-    for s in range(config.de_n_seeds):  # CHANGE 6
+    best_weights = None
+    best_obj = float('inf')
+    for s in range(config.de_n_seeds):
         seed = config.de_seed + s
         result = differential_evolution(
             objective_unconstrained, bounds,
-            args=(X, active_mask, config.cutoff_weights, config.min_weight, config.max_weight),  # CHANGE 7
+            args=(X, active_mask, config.cutoff_weights, config.min_weight, config.max_weight),
             **_de_call_kwargs(config, seed),
         )
-        w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
+        w = normalize_weights(result.x, config.min_weight, config.max_weight)
         obj = result.fun
         if obj < best_obj:
             best_obj = obj
@@ -693,16 +691,16 @@ def optimize_unconstrained(X, active_mask, config):
 def optimize_fair(X, active_mask, config):
     n_mod = X.shape[1]
     bounds = [(config.min_weight, config.max_weight)] * n_mod
-    best_weights = None  # CHANGE 6
-    best_obj = float('inf')  # CHANGE 6
-    for s in range(config.de_n_seeds):  # CHANGE 6
+    best_weights = None
+    best_obj = float('inf')
+    for s in range(config.de_n_seeds):
         seed = config.de_seed + s
         result = differential_evolution(
             objective_fair, bounds,
-            args=(X, active_mask, config.cutoff_weights, config.min_weight, config.max_weight),  # CHANGE 7
+            args=(X, active_mask, config.cutoff_weights, config.min_weight, config.max_weight),
             **_de_call_kwargs(config, seed),
         )
-        w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
+        w = normalize_weights(result.x, config.min_weight, config.max_weight)
         obj = result.fun
         if obj < best_obj:
             best_obj = obj
@@ -713,16 +711,16 @@ def optimize_fair(X, active_mask, config):
 def optimize_entropy(X, active_mask, config):
     n_mod = X.shape[1]
     bounds = [(0.01, 1.0)] * n_mod
-    best_weights = None  # CHANGE 6
-    best_obj = float('inf')  # CHANGE 6
-    for s in range(config.de_n_seeds):  # CHANGE 6
+    best_weights = None
+    best_obj = float('inf')
+    for s in range(config.de_n_seeds):
         seed = config.de_seed + s
         result = differential_evolution(
             objective_entropy, bounds,
-            args=(X, active_mask, config.cutoff_weights, config.entropy_weight, n_mod, config.min_weight, config.max_weight),  # CHANGE 7
+            args=(X, active_mask, config.cutoff_weights, config.entropy_weight, n_mod, config.min_weight, config.max_weight),
             **_de_call_kwargs(config, seed),
         )
-        w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
+        w = normalize_weights(result.x, config.min_weight, config.max_weight)
         obj = result.fun
         if obj < best_obj:
             best_obj = obj
@@ -730,19 +728,19 @@ def optimize_entropy(X, active_mask, config):
     return best_weights
 
 
-def optimize_unconstrained_bedroc(X, active_mask, config):  # CHANGE 4
+def optimize_unconstrained_bedroc(X, active_mask, config):
     n_mod = X.shape[1]
     bounds = [(0.01, 1.0)] * n_mod
-    best_weights = None  # CHANGE 6
-    best_obj = float('inf')  # CHANGE 6
-    for s in range(config.de_n_seeds):  # CHANGE 6
+    best_weights = None
+    best_obj = float('inf')
+    for s in range(config.de_n_seeds):
         seed = config.de_seed + s
         result = differential_evolution(
             objective_unconstrained_bedroc, bounds,
-            args=(X, active_mask, config.bedroc_alpha, config.min_weight, config.max_weight),  # CHANGE 7
+            args=(X, active_mask, config.bedroc_alpha, config.min_weight, config.max_weight),
             **_de_call_kwargs(config, seed),
         )
-        w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
+        w = normalize_weights(result.x, config.min_weight, config.max_weight)
         obj = result.fun
         if obj < best_obj:
             best_obj = obj
@@ -750,19 +748,19 @@ def optimize_unconstrained_bedroc(X, active_mask, config):  # CHANGE 4
     return best_weights
 
 
-def optimize_fair_bedroc(X, active_mask, config):  # CHANGE 4
+def optimize_fair_bedroc(X, active_mask, config):
     n_mod = X.shape[1]
     bounds = [(config.min_weight, config.max_weight)] * n_mod
-    best_weights = None  # CHANGE 6
-    best_obj = float('inf')  # CHANGE 6
-    for s in range(config.de_n_seeds):  # CHANGE 6
+    best_weights = None
+    best_obj = float('inf')
+    for s in range(config.de_n_seeds):
         seed = config.de_seed + s
         result = differential_evolution(
             objective_fair_bedroc, bounds,
-            args=(X, active_mask, config.bedroc_alpha, config.min_weight, config.max_weight),  # CHANGE 7
+            args=(X, active_mask, config.bedroc_alpha, config.min_weight, config.max_weight),
             **_de_call_kwargs(config, seed),
         )
-        w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
+        w = normalize_weights(result.x, config.min_weight, config.max_weight)
         obj = result.fun
         if obj < best_obj:
             best_obj = obj
@@ -770,19 +768,19 @@ def optimize_fair_bedroc(X, active_mask, config):  # CHANGE 4
     return best_weights
 
 
-def optimize_entropy_bedroc(X, active_mask, config):  # CHANGE 4
+def optimize_entropy_bedroc(X, active_mask, config):
     n_mod = X.shape[1]
     bounds = [(0.01, 1.0)] * n_mod
-    best_weights = None  # CHANGE 6
-    best_obj = float('inf')  # CHANGE 6
-    for s in range(config.de_n_seeds):  # CHANGE 6
+    best_weights = None
+    best_obj = float('inf')
+    for s in range(config.de_n_seeds):
         seed = config.de_seed + s
         result = differential_evolution(
             objective_entropy_bedroc, bounds,
-            args=(X, active_mask, config.bedroc_alpha, config.entropy_weight, n_mod, config.min_weight, config.max_weight),  # CHANGE 7
+            args=(X, active_mask, config.bedroc_alpha, config.entropy_weight, n_mod, config.min_weight, config.max_weight),
             **_de_call_kwargs(config, seed),
         )
-        w = normalize_weights(result.x, config.min_weight, config.max_weight)  # CHANGE 7
+        w = normalize_weights(result.x, config.min_weight, config.max_weight)
         obj = result.fun
         if obj < best_obj:
             best_obj = obj
@@ -794,9 +792,9 @@ OPTIMIZERS = {
     'unconstrained': optimize_unconstrained,
     'fair': optimize_fair,
     'entropy': optimize_entropy,
-    'unconstrained_bedroc': optimize_unconstrained_bedroc,  # CHANGE 4
-    'fair_bedroc': optimize_fair_bedroc,  # CHANGE 4
-    'entropy_bedroc': optimize_entropy_bedroc,  # CHANGE 4
+    'unconstrained_bedroc': optimize_unconstrained_bedroc,
+    'fair_bedroc': optimize_fair_bedroc,
+    'entropy_bedroc': optimize_entropy_bedroc,
 }
 
 
@@ -883,7 +881,7 @@ def compute_baselines(X: np.ndarray, active_mask: np.ndarray, mod_names: List[st
     baselines = {}
 
     # Equal weights
-    weights_equal = normalize_weights(np.ones(n_mod), config.min_weight, config.max_weight)  # CHANGE 7
+    weights_equal = normalize_weights(np.ones(n_mod), config.min_weight, config.max_weight)
     baselines['equal'] = {
         'weights': weights_equal,
         'performance': evaluate_weights(weights_equal, X, active_mask),
@@ -892,19 +890,19 @@ def compute_baselines(X: np.ndarray, active_mask: np.ndarray, mod_names: List[st
 
     # Random weights (averaged)
     np.random.seed(config.de_seed)
-    all_cutoffs = CUTOFFS  # CHANGE 3: evaluate random at all cutoffs
-    random_perfs = {c: [] for c in all_cutoffs}  # CHANGE 3
+    all_cutoffs = CUTOFFS
+    random_perfs = {c: [] for c in all_cutoffs}
     for _ in range(config.n_random_trials):
         w_rand = np.random.dirichlet(np.ones(n_mod))
         perf = evaluate_weights(w_rand, X, active_mask)
-        for c in all_cutoffs:  # CHANGE 3
+        for c in all_cutoffs:
             if c in perf:
                 random_perfs[c].append(perf[c]['ef'])
 
     N = len(active_mask)
     A = active_mask.sum()
-    perf_random = {}  # CHANGE 3
-    for c in all_cutoffs:  # CHANGE 3
+    perf_random = {}
+    for c in all_cutoffs:
         if random_perfs[c]:
             mean_ef = np.mean(random_perfs[c])
             k = max(1, int(N * c / 100))
@@ -966,7 +964,7 @@ class CWRATrainTest:
         self.weights_ = None
         self.available_cols_ = None
         self.mod_names_ = None
-        self.effective_modalities_ = None  # CHANGE 5
+        self.effective_modalities_ = None
         # Store results for train, test, and full (reference)
         self.train_performance_ = None
         self.test_performance_ = None
@@ -976,8 +974,8 @@ class CWRATrainTest:
         self.baselines_full_ = None
         self.all_methods_ = None
         self.split_info_ = None
-        self.filter_report_ = None  # CHANGE 2
-        self.prune_report_ = None  # CHANGE 5
+        self.filter_report_ = None
+        self.prune_report_ = None
 
     def fit(self, df: pd.DataFrame, verbose: bool = True) -> 'CWRATrainTest':
         """Fit CWRA with train/test split."""
@@ -991,15 +989,15 @@ class CWRATrainTest:
         # ----- Prepare full pool -----
         df_pool = df[~df['source'].isin(self.config.exclude_sources)].copy()
         full_active_mask = df_pool['source'].isin(self.config.active_sources).values
-        df_pool, full_active_mask, filter_report = apply_druglike_filter(  # CHANGE 2
+        df_pool, full_active_mask, filter_report = apply_druglike_filter(
             df_pool, full_active_mask, self.config, verbose=verbose
         )
-        self.filter_report_ = filter_report  # CHANGE 2
-        effective_modalities = filter_modalities(  # CHANGE 5
+        self.filter_report_ = filter_report
+        effective_modalities = filter_modalities(
             self.config.modalities, self.config.drop_modalities
         )
-        if self.config.auto_prune_threshold > 0:  # CHANGE 5
-            X_pre, avail_pre, names_pre = normalize_modalities(  # CHANGE 5
+        if self.config.auto_prune_threshold > 0:
+            X_pre, avail_pre, names_pre = normalize_modalities(
                 df_pool, effective_modalities, norm_method=self.config.norm_method
             )
             base_method = self.config.method if self.config.method in OPTIMIZERS else 'fair'
@@ -1028,10 +1026,10 @@ class CWRATrainTest:
                 print("Auto-prune: no modalities dropped.")
             self.prune_report_ = prune_report
 
-        X, self.available_cols_, self.mod_names_ = normalize_modalities(  # CHANGE 1
+        X, self.available_cols_, self.mod_names_ = normalize_modalities(
             df_pool, effective_modalities, norm_method=self.config.norm_method
         )
-        self.effective_modalities_ = effective_modalities  # CHANGE 5
+        self.effective_modalities_ = effective_modalities
 
         N, n_mod = X.shape
         A_full = full_active_mask.sum()
@@ -1049,7 +1047,7 @@ class CWRATrainTest:
             full_active_mask, self.config.train_frac, self.config.split_seed
         )
 
-        if self.config.strict_cv:  # CHANGE 7
+        if self.config.strict_cv:
             X, _, _ = normalize_modalities_cv(
                 df_pool,
                 effective_modalities,
@@ -1081,8 +1079,8 @@ class CWRATrainTest:
 
         self.all_methods_ = {}
 
-        method_names = ['unconstrained', 'fair', 'entropy']  # CHANGE 4
-        if self.config.use_bedroc:  # CHANGE 4
+        method_names = ['unconstrained', 'fair', 'entropy']
+        if self.config.use_bedroc:
             method_names = ['unconstrained_bedroc', 'fair_bedroc', 'entropy_bedroc']
 
         for method_name in method_names:
@@ -1100,21 +1098,21 @@ class CWRATrainTest:
                 train_active_mask,
                 extra_metrics=self.config.report_extra_metrics,
                 bedroc_alpha=self.config.report_bedroc_alpha,
-            )  # CHANGE 8
+            )
             perf_test = evaluate_weights(
                 weights,
                 X,
                 test_active_mask,
                 extra_metrics=self.config.report_extra_metrics,
                 bedroc_alpha=self.config.report_bedroc_alpha,
-            )  # CHANGE 8
+            )
             perf_full = evaluate_weights(
                 weights,
                 X,
                 full_active_mask,
                 extra_metrics=self.config.report_extra_metrics,
                 bedroc_alpha=self.config.report_bedroc_alpha,
-            )  # CHANGE 8
+            )
 
             n_sig = int(np.sum(weights > 0.05))
 
@@ -1127,8 +1125,8 @@ class CWRATrainTest:
             }
 
         # ----- Select final weights based on config method -----
-        chosen = self.config.method  # CHANGE 4
-        if self.config.use_bedroc:  # CHANGE 4
+        chosen = self.config.method
+        if self.config.use_bedroc:
             chosen = f"{chosen}_bedroc"
         if chosen not in self.all_methods_:
             chosen = "fair_bedroc" if self.config.use_bedroc else "fair"
@@ -1158,7 +1156,7 @@ class CWRATrainTest:
             print(header)
             print("-" * len(header))
 
-            for c in CUTOFFS:  # CHANGE 4
+            for c in CUTOFFS:
                 tr = self.train_performance_[c]
                 te = self.test_performance_[c]
                 fu = self.full_performance_[c]
@@ -1221,13 +1219,13 @@ class CWRATrainTest:
 
             # Combination methods (test set)
             combo_rows = []
-            method_labels = {  # CHANGE 4
+            method_labels = {
                 'fair': 'DE Fair',
                 'unconstrained': 'DE Unconstrained',
                 'entropy': 'DE Entropy',
             }
-            method_keys = ['fair', 'unconstrained', 'entropy']  # CHANGE 4
-            if self.config.use_bedroc:  # CHANGE 4
+            method_keys = ['fair', 'unconstrained', 'entropy']
+            if self.config.use_bedroc:
                 method_labels = {
                     'fair_bedroc': 'DE Fair (BEDROC)',
                     'unconstrained_bedroc': 'DE Unconstrained (BEDROC)',
@@ -1287,8 +1285,8 @@ class CWRATrainTest:
         mask = ~df_result['source'].isin(self.config.exclude_sources)
         df_pool = df_result[mask].copy()
 
-        modalities = self.effective_modalities_ or self.config.modalities  # CHANGE 5
-        X, _, _ = normalize_modalities(  # CHANGE 1
+        modalities = self.effective_modalities_ or self.config.modalities
+        X, _, _ = normalize_modalities(
             df_pool, modalities, norm_method=self.config.norm_method
         )
         scores = X @ self.weights_
@@ -1313,7 +1311,7 @@ class CWRATrainTest:
             be = self.baselines_test_[key]
             bf = self.baselines_full_[key]
             row = {'method': bt['name']}
-            for c in CUTOFFS:  # CHANGE 4
+            for c in CUTOFFS:
                 row[f'train_ef_{c}'] = bt['performance'][c]['ef']
                 row[f'train_hits_{c}'] = bt['performance'][c]['hits']
                 row[f'test_ef_{c}'] = be['performance'][c]['ef']
@@ -1323,12 +1321,12 @@ class CWRATrainTest:
             rows.append(row)
 
         # --- Optimized methods ---
-        method_labels = {  # CHANGE 4
+        method_labels = {
             'unconstrained': 'DE Unconstrained',
             'fair': 'DE Fair (3-25%)',
             'entropy': 'DE Entropy',
         }
-        if self.config.use_bedroc:  # CHANGE 4
+        if self.config.use_bedroc:
             method_labels = {
                 'unconstrained_bedroc': 'DE Unconstrained (BEDROC)',
                 'fair_bedroc': 'DE Fair (BEDROC)',
@@ -1338,7 +1336,7 @@ class CWRATrainTest:
         for key, label in method_labels.items():
             m = self.all_methods_[key]
             row = {'method': label}
-            for c in CUTOFFS:  # CHANGE 4
+            for c in CUTOFFS:
                 row[f'train_ef_{c}'] = m['perf_train'][c]['ef']
                 row[f'train_hits_{c}'] = m['perf_train'][c]['hits']
                 row[f'test_ef_{c}'] = m['perf_test'][c]['ef']
@@ -1359,7 +1357,7 @@ class CWRATrainTest:
                 be = self.baselines_test_[key]
                 bf = self.baselines_full_[key]
                 row = {'modality': name}
-                for c in CUTOFFS:  # CHANGE 4
+                for c in CUTOFFS:
                     row[f'train_ef_{c}'] = bt['performance'][c]['ef']
                     row[f'train_hits_{c}'] = bt['performance'][c]['hits']
                     row[f'test_ef_{c}'] = be['performance'][c]['ef']
@@ -1394,7 +1392,7 @@ class CWRATrainTest:
 
         # Train/test/full performance for the selected method
         perf_rows = []
-        for c in CUTOFFS:  # CHANGE 4
+        for c in CUTOFFS:
             perf_rows.append({
                 'cutoff_pct': c,
                 'train_ef': self.train_performance_[c]['ef'],
@@ -1411,11 +1409,11 @@ class CWRATrainTest:
         # Split info
         split_df = pd.DataFrame([self.split_info_])
         split_df.to_csv(output_dir / f'{prefix}_split_info.csv', index=False)
-        if self.filter_report_ is not None:  # CHANGE 2
+        if self.filter_report_ is not None:
             pd.DataFrame([self.filter_report_]).to_csv(
                 output_dir / f'{prefix}_filter_report.csv', index=False
             )
-        if self.prune_report_ is not None:  # CHANGE 5
+        if self.prune_report_ is not None:
             pd.DataFrame(self.prune_report_).to_csv(
                 output_dir / f'{prefix}_pruning_report.csv', index=False
             )
@@ -1453,15 +1451,15 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
 
     df_pool = df[~df['source'].isin(config.exclude_sources)].copy()
     full_active_mask = df_pool['source'].isin(config.active_sources).values
-    df_pool, full_active_mask, filter_report = apply_druglike_filter(  # CHANGE 2
+    df_pool, full_active_mask, filter_report = apply_druglike_filter(
         df_pool, full_active_mask, config, verbose=verbose
     )
 
-    effective_modalities = filter_modalities(  # CHANGE 5
+    effective_modalities = filter_modalities(
         config.modalities, config.drop_modalities
     )
     prune_report = None
-    if config.auto_prune_threshold > 0:  # CHANGE 5
+    if config.auto_prune_threshold > 0:
         X_pre, avail_pre, names_pre = normalize_modalities(
             df_pool, effective_modalities, norm_method=config.norm_method
         )
@@ -1490,16 +1488,16 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         else:
             print("Auto-prune: no modalities dropped.")
 
-    if not config.strict_cv:  # CHANGE 7
-        X_global, available_cols, mod_names = normalize_modalities(  # CHANGE 1
+    if not config.strict_cv:
+        X_global, available_cols, mod_names = normalize_modalities(
             df_pool, effective_modalities, norm_method=config.norm_method
         )
         N, n_mod = X_global.shape
     else:
-        X_tmp, available_cols, mod_names = normalize_modalities(  # CHANGE 7
+        X_tmp, available_cols, mod_names = normalize_modalities(
             df_pool, effective_modalities, norm_method=config.norm_method
         )
-        X_global = None  # CHANGE 7
+        X_global = None
         N, n_mod = X_tmp.shape
     A_full = int(full_active_mask.sum())
 
@@ -1525,7 +1523,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
     fold_info_rows = []
     indiv_rows = []
     method_rows = []
-    extra_rows = []  # CHANGE 8
+    extra_rows = []
     entropy_rows = []
     significant_rows = []
     unimol_fold_rows = []
@@ -1558,9 +1556,9 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
             )
             use_fold_honest_unimol = True
 
-    base_method = config.method if config.method in ['unconstrained', 'fair', 'entropy'] else 'fair'  # CHANGE 4
-    chosen = f"{base_method}_bedroc" if config.use_bedroc else base_method  # CHANGE 4
-    if chosen not in OPTIMIZERS:  # CHANGE 4
+    base_method = config.method if config.method in ['unconstrained', 'fair', 'entropy'] else 'fair'
+    chosen = f"{base_method}_bedroc" if config.use_bedroc else base_method
+    if chosen not in OPTIMIZERS:
         chosen = "fair_bedroc" if config.use_bedroc else "fair"
 
     for fold_idx, (train_active_mask, test_active_mask) in enumerate(folds, start=1):
@@ -1601,7 +1599,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
             df_fold[unimol_col] = unimol_sim
             df_fold[unimol_feature_key] = unimol_sim
 
-            if config.strict_cv:  # CHANGE 7
+            if config.strict_cv:
                 X, _, _ = normalize_modalities_cv(
                     df_fold,
                     effective_modalities,
@@ -1615,7 +1613,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                     norm_method=config.norm_method,
                 )
         else:
-            if config.strict_cv:  # CHANGE 7
+            if config.strict_cv:
                 X, _, _ = normalize_modalities_cv(
                     df_pool,
                     effective_modalities,
@@ -1626,8 +1624,8 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 X = X_global
 
         all_methods = {}
-        method_names = ['unconstrained', 'fair', 'entropy']  # CHANGE 4
-        if config.use_bedroc:  # CHANGE 4
+        method_names = ['unconstrained', 'fair', 'entropy']
+        if config.use_bedroc:
             method_names = ['unconstrained_bedroc', 'fair_bedroc', 'entropy_bedroc']
         for method_name in method_names:
             if verbose:
@@ -1649,19 +1647,19 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 'mean_rank_test': mean_rank_test,
             }
 
-            method_row = {  # CHANGE 4
+            method_row = {
                 'fold': fold_idx,
                 'method': method_name,
                 'test_mean_rank': mean_rank_test,
             }
-            for c in CUTOFFS:  # CHANGE 4
+            for c in CUTOFFS:
                 method_row[f'test_ef_{c}'] = perf_test[c]['ef']
                 method_row[f'test_hits_{c}'] = perf_test[c]['hits']
             method_rows.append(method_row)
 
         chosen_data = all_methods[chosen]
 
-        if config.report_extra_metrics:  # CHANGE 8
+        if config.report_extra_metrics:
             scores = X @ chosen_data['weights']
             extra_train = compute_extra_metrics(
                 scores, train_active_mask, config.report_bedroc_alpha
@@ -1686,7 +1684,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 'full_bedroc': extra_full['bedroc'],
             })
 
-        for c in CUTOFFS:  # CHANGE 4
+        for c in CUTOFFS:
             perf_rows.append({
                 'fold': fold_idx,
                 'method': chosen,
@@ -1742,14 +1740,14 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 'fold': fold_idx,
                 'baseline': be['name'],
             }
-            for c in CUTOFFS:  # CHANGE 4
+            for c in CUTOFFS:
                 row[f'train_ef_{c}'] = bt['performance'][c]['ef']
                 row[f'train_hits_{c}'] = bt['performance'][c]['hits']
                 row[f'test_ef_{c}'] = be['performance'][c]['ef']
                 row[f'test_hits_{c}'] = be['performance'][c]['hits']
                 row[f'full_ef_{c}'] = bf['performance'][c]['ef']
                 row[f'full_hits_{c}'] = bf['performance'][c]['hits']
-            if config.report_extra_metrics:  # CHANGE 8
+            if config.report_extra_metrics:
                 w_base = be['weights']
                 if w_base is not None:
                     scores = X @ w_base
@@ -1771,10 +1769,10 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 continue
             be = baselines_test[key]
             row = {'fold': fold_idx, 'modality': name}
-            for c in CUTOFFS:  # CHANGE 4
+            for c in CUTOFFS:
                 row[f'test_ef_{c}'] = be['performance'][c]['ef']
                 row[f'test_hits_{c}'] = be['performance'][c]['hits']
-            if config.report_extra_metrics:  # CHANGE 8
+            if config.report_extra_metrics:
                 w_mod = be['weights']
                 if w_mod is not None:
                     scores = X @ w_mod
@@ -1797,7 +1795,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
     fold_info_df = pd.DataFrame(fold_info_rows)
     indiv_df = pd.DataFrame(indiv_rows)
     method_df = pd.DataFrame(method_rows)
-    extra_df = pd.DataFrame(extra_rows)  # CHANGE 8
+    extra_df = pd.DataFrame(extra_rows)
 
     summary_df = (
         perf_df.groupby('cutoff_pct', as_index=False)
@@ -1869,23 +1867,23 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         indiv_df.to_csv(output_dir / f'{cv_prefix}_folds_individual.csv', index=False)
         method_df.to_csv(output_dir / f'{cv_prefix}_folds_methods.csv', index=False)
         mean_rank_summary_df.to_csv(output_dir / f'{cv_prefix}_mean_rank_summary.csv', index=False)
-        if not extra_df.empty:  # CHANGE 8
+        if not extra_df.empty:
             extra_df.to_csv(output_dir / f'{cv_prefix}_folds_extra_metrics.csv', index=False)
         if use_fold_honest_unimol and unimol_fold_rows:
             pd.DataFrame(unimol_fold_rows).to_csv(
                 output_dir / f'{cv_prefix}_folds_unimol_fold_honest.csv', index=False
             )
-        if filter_report is not None:  # CHANGE 2
+        if filter_report is not None:
             pd.DataFrame([filter_report]).to_csv(
                 output_dir / f'{prefix}_filter_report.csv', index=False
             )
-        if prune_report is not None:  # CHANGE 5
+        if prune_report is not None:
             pd.DataFrame(prune_report).to_csv(
                 output_dir / f'{prefix}_pruning_report.csv', index=False
             )
 
         # Build and save the paper-ready table
-        paper_df = build_paper_table(  # CHANGE 8
+        paper_df = build_paper_table(
             indiv_df, baseline_df, method_df, chosen, extra_df=extra_df
         )
         paper_df.to_csv(output_dir / f'{prefix}_paper_table.csv', index=False)
@@ -1910,8 +1908,8 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
         print("-" * len(header))
 
         for _, row in summary_df.iterrows():
-            c = float(row['cutoff_pct'])  # CHANGE 4
-            c_str = f"{c:g}"  # CHANGE 4
+            c = float(row['cutoff_pct'])
+            c_str = f"{c:g}"
             tr = _fmt_pm(row['train_ef_mean'], row['train_ef_std'])
             te = _fmt_pm(row['test_ef_mean'], row['test_ef_std'])
             fu = _fmt_pm(row['full_ef_mean'], row['full_ef_std'])
@@ -2035,13 +2033,13 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
 
         # Combination methods (test set)
         combo_rows = []
-        method_labels = {  # CHANGE 4
+        method_labels = {
             'fair': 'DE Fair',
             'unconstrained': 'DE Unconstrained',
             'entropy': 'DE Entropy',
         }
-        method_keys = ['fair', 'unconstrained', 'entropy']  # CHANGE 4
-        if config.use_bedroc:  # CHANGE 4
+        method_keys = ['fair', 'unconstrained', 'entropy']
+        if config.use_bedroc:
             method_labels = {
                 'fair_bedroc': 'DE Fair (BEDROC)',
                 'unconstrained_bedroc': 'DE Unconstrained (BEDROC)',
@@ -2080,7 +2078,7 @@ def run_cross_validation(df: pd.DataFrame, config: CWRAConfig, n_folds: int,
                 combo_rows,
             )
 
-        if config.report_extra_metrics and not extra_df.empty:  # CHANGE 8
+        if config.report_extra_metrics and not extra_df.empty:
             print(f"\n--- Extra metrics (test set, mean +/- std) ---")
             auroc_mean = extra_df['test_auroc'].mean()
             auroc_std = extra_df['test_auroc'].std(ddof=0)
@@ -2107,7 +2105,7 @@ def build_paper_table(
     baseline_df: pd.DataFrame,
     method_df: pd.DataFrame,
     chosen_method: str = "fair",
-    extra_df: Optional[pd.DataFrame] = None,  # CHANGE 8
+    extra_df: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Aggregate per-fold CV results into a single paper-ready table.
@@ -2133,13 +2131,13 @@ def build_paper_table(
             if hits_col in grp.columns:
                 row[f"hits_{c}"] = grp[hits_col].mean()
                 row[f"hits_{c}_std"] = grp[hits_col].std(ddof=0)
-        if "test_auroc" in grp.columns:  # CHANGE 8
+        if "test_auroc" in grp.columns:
             row["auroc"] = grp["test_auroc"].mean()
             row["auroc_std"] = grp["test_auroc"].std(ddof=0)
-        if "test_auprc" in grp.columns:  # CHANGE 8
+        if "test_auprc" in grp.columns:
             row["auprc"] = grp["test_auprc"].mean()
             row["auprc_std"] = grp["test_auprc"].std(ddof=0)
-        if "test_bedroc" in grp.columns:  # CHANGE 8
+        if "test_bedroc" in grp.columns:
             row["bedroc"] = grp["test_bedroc"].mean()
             row["bedroc_std"] = grp["test_bedroc"].std(ddof=0)
         rows.append(row)
@@ -2157,13 +2155,13 @@ def build_paper_table(
             if hits_col in eq.columns:
                 row[f"hits_{c}"] = eq[hits_col].mean()
                 row[f"hits_{c}_std"] = eq[hits_col].std(ddof=0)
-        if "test_auroc" in eq.columns:  # CHANGE 8
+        if "test_auroc" in eq.columns:
             row["auroc"] = eq["test_auroc"].mean()
             row["auroc_std"] = eq["test_auroc"].std(ddof=0)
-        if "test_auprc" in eq.columns:  # CHANGE 8
+        if "test_auprc" in eq.columns:
             row["auprc"] = eq["test_auprc"].mean()
             row["auprc_std"] = eq["test_auprc"].std(ddof=0)
-        if "test_bedroc" in eq.columns:  # CHANGE 8
+        if "test_bedroc" in eq.columns:
             row["bedroc"] = eq["test_bedroc"].mean()
             row["bedroc_std"] = eq["test_bedroc"].std(ddof=0)
         rows.append(row)
@@ -2181,7 +2179,7 @@ def build_paper_table(
             if hits_col in cwra.columns:
                 row[f"hits_{c}"] = cwra[hits_col].mean()
                 row[f"hits_{c}_std"] = cwra[hits_col].std(ddof=0)
-        if extra_df is not None and not extra_df.empty and "test_auroc" in extra_df.columns:  # CHANGE 8
+        if extra_df is not None and not extra_df.empty and "test_auroc" in extra_df.columns:
             extra_sel = extra_df[extra_df["method"] == chosen_method]
             if not extra_sel.empty:
                 row["auroc"] = extra_sel["test_auroc"].mean()
@@ -2215,7 +2213,7 @@ def paper_table_to_latex(
     ),
     label: str = "tab:fusion_performance",
     show_std: bool = True,
-    show_extra_metrics: bool = False,  # CHANGE 8
+    show_extra_metrics: bool = False,
 ) -> str:
     """
     Convert the paper table DataFrame to LaTeX source.
@@ -2248,7 +2246,7 @@ def paper_table_to_latex(
                 b, s = _rank_col(col)
                 best_idx[col] = b
                 second_idx[col] = s
-    if show_extra_metrics:  # CHANGE 8
+    if show_extra_metrics:
         for col in ["auroc", "auprc", "bedroc"]:
             if col in df.columns:
                 b, s = _rank_col(col)
@@ -2300,7 +2298,7 @@ def paper_table_to_latex(
 
     n_c = len(cutoffs)
     col_spec = "l" + "r" * n_c + "|" + "r" * n_c
-    if show_extra_metrics:  # CHANGE 8
+    if show_extra_metrics:
         col_spec += "|" + "r" * 3
     lines.append(f"\\begin{{tabular}}{{{col_spec}}}")
     lines.append(r"\toprule")
@@ -2308,7 +2306,7 @@ def paper_table_to_latex(
     # Header row 1
     ef_header = f"\\multicolumn{{{n_c}}}{{c|}}{{Enrichment Factor (EF)}}"
     hits_header = f"\\multicolumn{{{n_c}}}{{c}}{{Hits}}"
-    if show_extra_metrics:  # CHANGE 8
+    if show_extra_metrics:
         extra_header = "\\multicolumn{3}{c}{Extra Metrics}"
         lines.append(f"& {ef_header} & {hits_header} & {extra_header} \\\\")
     else:
@@ -2317,7 +2315,7 @@ def paper_table_to_latex(
     # Header row 2
     ef_cols = " & ".join([f"@{c}\\%" for c in cutoffs])
     hits_cols = " & ".join([f"@{c}\\%" for c in cutoffs])
-    if show_extra_metrics:  # CHANGE 8
+    if show_extra_metrics:
         lines.append(f"Method & {ef_cols} & {hits_cols} & AUROC & AUPRC & BEDROC \\\\")
     else:
         lines.append(f"Method & {ef_cols} & {hits_cols} \\\\")
@@ -2342,7 +2340,7 @@ def paper_table_to_latex(
             hits_cells.append(_fmt_val(idx, hits_col, is_hits=True))
 
         cells = ef_cells + hits_cells
-        if show_extra_metrics:  # CHANGE 8
+        if show_extra_metrics:
             for col in ["auroc", "auprc", "bedroc"]:
                 if col in df.columns:
                     cells.append(_fmt_val(idx, col, is_hits=False))
@@ -2383,38 +2381,38 @@ def main():
     parser.add_argument('--bedroc-alpha', type=float, default=80.0)
     parser.add_argument('--max-mw', type=float, default=600) 
     parser.add_argument('--max-rotb', type=int, default=15)
-    parser.add_argument('--smiles-col', type=str, default='smiles')  # CHANGE 2
+    parser.add_argument('--smiles-col', type=str, default='smiles')
     parser.add_argument(
         '--drop-modalities',
         nargs='+',
         default=[],
         help="Modalities to drop by key and/or display name (e.g. unimol_similarity or UniMol_sim)",
-    )  # CHANGE 5
-    parser.add_argument('--auto-prune', type=float, default=0.0)  # CHANGE 5
-    parser.add_argument('--de-maxiter', type=int, default=1000)  # CHANGE 6
-    parser.add_argument('--de-seeds', type=int, default=1)  # CHANGE 6
+    )
+    parser.add_argument('--auto-prune', type=float, default=0.0)
+    parser.add_argument('--de-maxiter', type=int, default=1000)
+    parser.add_argument('--de-seeds', type=int, default=1)
     parser.add_argument(
         '--de-workers',
         type=int,
         default=-1,
         help='SciPy differential_evolution workers (-1 = all CPUs, 1 = single process)',
     )
-    parser.add_argument('--strict-cv', dest='strict_cv', action='store_true')  # CHANGE 7
-    parser.add_argument('--no-strict-cv', dest='strict_cv', action='store_false')  # CHANGE 7
-    parser.set_defaults(strict_cv=False)  # CHANGE 7
+    parser.add_argument('--strict-cv', dest='strict_cv', action='store_true')
+    parser.add_argument('--no-strict-cv', dest='strict_cv', action='store_false')
+    parser.set_defaults(strict_cv=False)
     parser.add_argument('--fold-honest-unimol', action='store_true', default=False, help='Recompute Uni-Mol similarity per CV fold using training-fold actives only.')
     parser.add_argument('--unimol-embeddings', type=str, default=None, help="Path to Uni-Mol embeddings .npz containing keys 'smiles' and 'emb'.")
-    parser.add_argument('--extra-metrics', dest='report_extra_metrics', action='store_true')  # CHANGE 8
-    parser.add_argument('--no-extra-metrics', dest='report_extra_metrics', action='store_false')  # CHANGE 8
-    parser.set_defaults(report_extra_metrics=True)  # CHANGE 8
-    parser.add_argument('--report-bedroc-alpha', type=float, default=80.0)  # CHANGE 8
+    parser.add_argument('--extra-metrics', dest='report_extra_metrics', action='store_true')
+    parser.add_argument('--no-extra-metrics', dest='report_extra_metrics', action='store_false')
+    parser.set_defaults(report_extra_metrics=True)
+    parser.add_argument('--report-bedroc-alpha', type=float, default=80.0)
     parser.add_argument(
         '--include-newref-137-as-active',
         action='store_true',
         default=False,
         help="Treat source 'newRef_137' as active (remove from exclude_sources and add to active_sources).",
     )
-    parser.add_argument('--self-test', action='store_true', default=False)  # CHANGE 7
+    parser.add_argument('--self-test', action='store_true', default=False)
     parser.add_argument('--train-frac', type=float, default=0.7, help='Fraction of actives for training (default: 0.7)')
     parser.add_argument('--cv-folds', type=int, default=5, help='Number of repeated active train/test splits (independent of --train-frac)')
     parser.add_argument('--seed', type=int, default=42, help='Seed for both DE and active split')
@@ -2429,7 +2427,7 @@ def main():
             "Example: --fold-honest-unimol --unimol-embeddings data/unimol_embeddings.npz"
         )
 
-    if args.self_test:  # CHANGE 7
+    if args.self_test:
         rng = np.random.RandomState(0)
         v = rng.randn(9)
         w = project_to_capped_simplex(v, 0.03, 0.4)
@@ -2469,23 +2467,23 @@ def main():
         method=args.method,
         min_weight=args.min_weight,
         max_weight=args.max_weight,
-        norm_method=args.norm,  # CHANGE 1
-        objective_preset=args.objective,  # CHANGE 4
-        use_bedroc=args.bedroc,  # CHANGE 4
-        bedroc_alpha=args.bedroc_alpha,  # CHANGE 4
-        max_mw=args.max_mw,  # CHANGE 2
-        max_rotb=args.max_rotb,  # CHANGE 2
-        smiles_col=args.smiles_col,  # CHANGE 2
-        drop_modalities=args.drop_modalities,  # CHANGE 5
-        auto_prune_threshold=args.auto_prune,  # CHANGE 5
-        de_maxiter=args.de_maxiter,  # CHANGE 6
-        de_n_seeds=args.de_seeds,  # CHANGE 6
+        norm_method=args.norm,
+        objective_preset=args.objective,
+        use_bedroc=args.bedroc,
+        bedroc_alpha=args.bedroc_alpha,
+        max_mw=args.max_mw,
+        max_rotb=args.max_rotb,
+        smiles_col=args.smiles_col,
+        drop_modalities=args.drop_modalities,
+        auto_prune_threshold=args.auto_prune,
+        de_maxiter=args.de_maxiter,
+        de_n_seeds=args.de_seeds,
         de_workers=args.de_workers,
-        strict_cv=args.strict_cv,  # CHANGE 7
+        strict_cv=args.strict_cv,
         fold_honest_unimol=args.fold_honest_unimol,
         unimol_embeddings_path=args.unimol_embeddings,
-        report_extra_metrics=args.report_extra_metrics,  # CHANGE 8
-        report_bedroc_alpha=args.report_bedroc_alpha,  # CHANGE 8
+        report_extra_metrics=args.report_extra_metrics,
+        report_bedroc_alpha=args.report_bedroc_alpha,
         de_seed=args.seed,
         split_seed=args.seed,
         train_frac=args.train_frac,

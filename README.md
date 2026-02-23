@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/Salimzhanov/cwra-vdr/actions/workflows/ci.yml/badge.svg)](https://github.com/Salimzhanov/cwra-vdr/actions/workflows/ci.yml)
 
 A framework for combining multiple molecular docking and binding affinity prediction methods to improve virtual screening performance for Vitamin D Receptor (VDR) ligands. Supports 11 modalities including docking scores, deep learning-based affinity predictions, and similarity-based methods.
 
@@ -16,10 +17,8 @@ A framework for combining multiple molecular docking and binding affinity predic
 ## Table of Contents
 
 - [Installation](#installation)
-- [Current Quickstart](#current-quickstart)
-- [Quick Start](#quick-start)
+- [Reproduce Paper Results](#reproduce-paper-results)
 - [Project Structure](#project-structure)
-- [Usage](#usage)
 - [Modalities](#modalities)
 - [Performance](#performance)
 - [Structure Prediction Pipeline](#structure-prediction-pipeline)
@@ -29,112 +28,135 @@ A framework for combining multiple molecular docking and binding affinity predic
 
 ## Installation
 
-### From Source
-
 ```bash
 git clone https://github.com/Salimzhanov/cwra-vdr.git
 cd cwra-vdr
+python -m venv .venv
+# Linux/macOS: source .venv/bin/activate
+# Windows:     .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+Editable install (also makes the `cwra` console command available):
+
+```bash
 pip install -e .
 ```
 
-### Dependencies
+### Core Dependencies
 
-Core dependencies:
-- numpy>=1.21.0
-- pandas>=1.3.0
-- scipy>=1.7.0
-- scikit-learn>=1.0.0
-- rdkit>=2021.03.1
-- matplotlib>=3.5.0
+- numpy ≥ 1.21 · pandas ≥ 1.3 · scipy ≥ 1.7 · scikit-learn ≥ 1.0
+- rdkit ≥ 2021.03 · matplotlib ≥ 3.5 · tqdm ≥ 4.60
 
-Optional (for structure prediction):
+### Optional (structure prediction)
+
 - AutoDock Vina
 - Boltz-2 (for AI structure prediction)
-- meeko>=0.7.1 (for PDBQT conversion)
+- meeko ≥ 0.7.1 (for PDBQT conversion)
 
-## Current Quickstart
+## Reproduce Paper Results
 
-For current reproducible workflows (CWRA CV, table export, PU-conformal, molecule panels), use:
+The single command below runs the full paper pipeline end-to-end:
 
-- `docs/GITHUB_QUICKSTART.md`
+```bash
+python run_cwra.py
+```
 
-Core entrypoints:
-- `cwra_cv_v2.py`
-- `create_cwra_tables.py`
-- `run_pu_conformal_pipeline.py`
-- `make_mol_panel.py`
+This executes, in order:
 
-Environment smoke test:
+1. **CWRA cross-validation** — `cwra.py` (weight optimization, enrichment metrics)
+2. **LaTeX tables** — `create_cwra_tables.py`
+3. **PU-conformal selection** — `pu_conformal.py`
+4. **Molecule panel** — `make_mol_panel.py`
+5. **Publication figures** — `plot_results/01_data_pipeline.py`, `plot_results/plot_cwra_stats.py`
+
+To inspect each command without running:
+
+```bash
+python run_cwra.py --dry-run
+```
+
+### Individual Steps
+
+```bash
+# 1. CWRA cross-validation (main algorithm)
+python cwra.py \
+  -i data/composed_modalities_with_rdkit.csv \
+  -o results/final \
+  --method fair --norm minmax --objective default \
+  --bedroc --bedroc-alpha 100 --max-mw 700 \
+  --train-frac 0.85 --cv-folds 5 --seed 42 \
+  --de-workers -1 --include-newref-137-as-active \
+  --fold-honest-unimol --unimol-embeddings data/unimol_embeddings.npz \
+  --extra-metrics
+
+# 2. Export LaTeX tables
+python create_cwra_tables.py --results-dir results/final
+
+# 3. PU-conformal compound selection
+python pu_conformal.py \
+  --input data/composed_modalities_with_rdkit.csv \
+  --outdir results/final/pipeline \
+  --score-source cwra \
+  --cwra-weights-csv results/final/cwra_cv_mean_weights.csv \
+  --cwra-norm minmax \
+  --include-newref-137-as-active --seed 42 \
+  --max-mw 700 --max-rotb 15 --pval-type unweighted
+
+# 4. Molecule panel figure
+python make_mol_panel.py \
+  --csv results/final/pipeline/E/final_selected.csv \
+  --out results/final/panel_10x5.pdf \
+  --n 50 --per-row 5 --cell 320 --sort meta --tau 0.001
+```
+
+### Environment Smoke Test
 
 ```bash
 python scripts/smoke_check.py
 ```
 
-## Quick Start
-
-### Command Line
-
-```bash
-# Run CWRA with fair weight optimization (recommended)
-python cwra_final.py --input data/labeled_raw_modalities.csv --output results/cwra_final --method fair
-
-# Run with specific weight constraints
-python cwra_final.py --input data/labeled_raw_modalities.csv --method fair --min-weight 0.03 --max-weight 0.25
-```
-
-### Python API
-
-```python
-import pandas as pd
-from cwra_final import CWRAConfig, CWRAOptimizer
-
-# Load data
-df = pd.read_csv('data/labeled_raw_modalities.csv')
-
-# Configure and run CWRA
-config = CWRAConfig(method='fair', min_weight=0.03, max_weight=0.25)
-optimizer = CWRAOptimizer(config)
-results = optimizer.fit(df)
-
-# Get rankings
-rankings = results['rankings']
-print(f"Top compound: {rankings.iloc[0]['smiles']}")
-```
+See also [docs/GITHUB_QUICKSTART.md](docs/GITHUB_QUICKSTART.md) for a step-by-step walkthrough.
 
 ## Project Structure
 
 ```
 cwra-vdr/
-├── cwra_final.py                  # Main CWRA algorithm
-├── cwra/                          # Core package (legacy API)
-│   ├── __init__.py
-│   ├── __main__.py
-│   └── cwra.py
-├── scripts/                       # Utility scripts
-│   ├── generate_g_group_pdbs.py   # Generate docked PDB structures
-│   ├── run_boltz2_predictions.py  # Boltz-2 structure predictions
-│   ├── compute_*.py               # Modality computation scripts
-│   └── run_*.py                   # Inference scripts
+├── cwra.py                        # Main CWRA algorithm (CV, optimization, metrics)
+├── pu_conformal.py                # PU-conformal compound selection pipeline
+├── run_cwra.py                    # Orchestrator — runs full paper pipeline
+├── create_cwra_tables.py          # Export LaTeX performance tables
+├── make_mol_panel.py              # Molecule grid figures
+├── cwra/                          # Python package (pip install -e .)
+│   ├── __init__.py                #   Re-exports from cwra.py
+│   └── __main__.py                #   python -m cwra entry point
+├── scripts/                       # Utility & computation scripts
+│   ├── smoke_check.py             #   Environment validation
+│   ├── run_vina_docking.py        #   AutoDock Vina docking
+│   ├── run_boltz2_top100.py       #   Boltz-2 structure predictions
+│   ├── generate_top100_g_pdbs.py  #   Generate docked PDB structures
+│   └── compute_*.py               #   Modality computation scripts
+├── plot_results/                   # Publication figure generation
+│   ├── 01_data_pipeline.py
+│   ├── 02_generate_figures.py
+│   └── 03_generate_html_report.py
 ├── data/
-│   ├── labeled_raw_modalities.csv # Main dataset with all modalities
-│   └── composed_modalities.csv    # Extended dataset
-├── results/
-│   └── cwra_final/                # Final results
-│       ├── cwra_final_rankings.csv    # Complete rankings (16,059 compounds)
-│       ├── g_group_pdbs_docked/       # Docked PDB structures
-│       └── boltz2_predictions/        # Boltz-2 AI structure predictions
-├── pdb/                           # VDR structure files
-│   ├── 1DB1.pdb                   # VDR crystal structure
-│   └── 1DB1.pdbqt                 # AutoDock format
+│   ├── README.md                  # Data provenance & schema documentation
+│   ├── composed_modalities_with_rdkit.csv   # Main dataset (11 modalities)
+│   ├── labeled_raw_modalities.csv
+│   └── unimol_embeddings.npz
+├── results/                       # Generated outputs (not tracked in git)
+├── pdb/                           # VDR structure files (1DB1 crystal structure)
 ├── models/                        # Pre-trained model weights
 ├── DrugBAN/                       # DrugBAN submodule
 ├── MolTrans/                      # MolTrans submodule
 ├── TankBind/                      # TankBind submodule
+├── tests/                         # Unit tests
 ├── pyproject.toml
 ├── requirements.txt
-├── README.md
 ├── CONTRIBUTING.md
-├── CHANGELOG.md
+├── CITATION.cff
+├── RELEASE.md
 └── LICENSE.txt
 ```
 
@@ -142,17 +164,17 @@ cwra-vdr/
 
 | Modality | Description | Source |
 |----------|-------------|--------|
-| GraphDTA-Kd | Graph neural network predicting dissociation constants from molecular graphs and protein sequences | [GitHub](https://github.com/thinng/GraphDTA)  |
-| GraphDTA-Ki | Graph neural network predicting inhibition constants | [GitHub](https://github.com/thinng/GraphDTA)  |
-| GraphDTA-IC50 | Graph neural network predicting half-maximal inhibitory concentrations | [GitHub](https://github.com/thinng/GraphDTA)  |
-| MLT-LE pKd | Multi-task residual neural network for binding affinity prediction across pKd, pKi, pIC50 tasks | [GitHub](https://github.com/VeaLi/MLT-LE) |
-| AutoDock Vina | Physics-based docking scoring function | [AutoDock Vina](https://vina.scripps.edu/)  |
-| Boltz-2 affinity | Foundation model for biomolecular structure and binding affinity prediction | [GitHub](https://github.com/jwohlwend/boltz)  |
+| GraphDTA-Kd | Graph neural network predicting dissociation constants | [GitHub](https://github.com/thinng/GraphDTA) |
+| GraphDTA-Ki | Graph neural network predicting inhibition constants | [GitHub](https://github.com/thinng/GraphDTA) |
+| GraphDTA-IC50 | Graph neural network predicting half-maximal inhibitory concentrations | [GitHub](https://github.com/thinng/GraphDTA) |
+| MLT-LE pKd | Multi-task residual neural network for binding affinity prediction | [GitHub](https://github.com/VeaLi/MLT-LE) |
+| AutoDock Vina | Physics-based docking scoring function | [AutoDock Vina](https://vina.scripps.edu/) |
+| Boltz-2 affinity | Foundation model for biomolecular binding affinity prediction | [GitHub](https://github.com/jwohlwend/boltz) |
 | Boltz-2 confidence | Binding likelihood score from Boltz-2 | [GitHub](https://github.com/jwohlwend/boltz) |
-| Uni-Mol similarity | 3D molecular representation learning framework; similarity to reference actives | [GitHub](https://github.com/deepmodeling/Uni-Mol) |
-| TankBind affinity | Trigonometry-aware neural network for binding structure and affinity prediction | [GitHub](https://github.com/luwei0917/TankBind)  |
-| DrugBAN affinity | Bilinear attention network learning pairwise interactions from 2D molecular graphs and protein sequences | [GitHub](https://github.com/peizhenbai/DrugBAN)  |
-| MolTrans affinity | Transformer using frequent consecutive subsequence mining for drug-target interaction prediction | [GitHub](https://github.com/kexinhuang12345/MolTrans)  |
+| Uni-Mol similarity | 3D molecular representation similarity to reference actives | [GitHub](https://github.com/deepmodeling/Uni-Mol) |
+| TankBind affinity | Trigonometry-aware neural network for binding affinity | [GitHub](https://github.com/luwei0917/TankBind) |
+| DrugBAN affinity | Bilinear attention network for drug–target interaction | [GitHub](https://github.com/peizhenbai/DrugBAN) |
+| MolTrans affinity | Transformer for drug–target interaction prediction | [GitHub](https://github.com/kexinhuang12345/MolTrans) |
 
 ## Performance
 
@@ -178,105 +200,34 @@ Results from CWRA fair-weight optimization on 16,059 compounds (366 actives from
 | G3 | 2 | 3-model consensus candidates |
 | calcitriol | 1 | Reference ligand (rank 29) |
 
-### Generator Performance in Top 100
-
-The CWRA ranking successfully prioritizes high-quality generated compounds:
-- **61** known actives (reference)
-- **17** from gmdldr_reinvent (G2)
-- **8** from transmol-reinvent-gmdldr (G3)
-- **7** from reinvent_transmol (G2)
-- **6** from gmdldr_transmol (G2)
-
-## Usage
-
-### Command Line Arguments (cwra_final.py)
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--input` | required | Input CSV with modalities + SMILES + source |
-| `--output` | `results/` | Output directory for results |
-| `--method` | `fair` | Optimization: 'fair', 'unconstrained', 'entropy', 'topk' |
-| `--min-weight` | `0.03` | Minimum weight per modality (fair method) |
-| `--max-weight` | `0.25` | Maximum weight per modality (fair method) |
-| `--de-maxiter` | `500` | Differential evolution iterations |
-| `--seed` | `42` | Random seed |
-
-### Input Format
-
-The input CSV requires:
-- `smiles`: SMILES strings
-- `source`: Source identifier (e.g., 'initial_370' for actives, 'G1'/'G2'/'G3' for generated)
-- `generator`: Generator name (e.g., 'reinvent', 'gmdldr', 'transmol')
-- Modality columns: `graphdta_kd`, `graphdta_ki`, `graphdta_ic50`, `mltle_pKd`, `vina_score`, `boltz_affinity`, `boltz_confidence`, `unimol_similarity`, `tankbind_affinity`, `drugban_affinity`, `moltrans_affinity`
-
-### Output Files
-
-- `cwra_final_rankings.csv`: Complete ranking with CWRA scores (16,059 compounds)
-- `g_group_pdbs_docked/`: Docked 3D structures for top/bottom G-group compounds
-- `boltz2_predictions/`: AI-predicted protein-ligand complex structures
-
 ## Structure Prediction Pipeline
 
-The project includes a complete pipeline for generating 3D structures of top-ranked compounds:
+The project includes pipelines for generating 3D structures of top-ranked compounds.
 
-### 1. Generate Docked PDB Structures
+### AutoDock Vina Docking
 
 ```bash
-python scripts/generate_g_group_pdbs.py \
-    --input results/cwra_final/cwra_final_rankings.csv \
-    --output results/cwra_final/g_group_pdbs_docked \
-    --receptor pdb/1DB1.pdb \
-    --top-n 5 --bottom-n 5 \
-    --exhaustiveness 8
+python scripts/run_vina_docking.py --timeout 1800
 ```
 
-This generates AutoDock Vina docked structures for top/bottom compounds across G-groups (G1, G2, G3).
-
-### 2. Run Boltz-2 AI Structure Predictions
+### Boltz-2 AI Structure Predictions
 
 ```bash
-python scripts/run_boltz2_predictions.py \
-    --manifest results/cwra_final/g_group_pdbs_docked/manifest.csv \
-    --output results/cwra_final/boltz2_predictions \
-    --accelerator gpu \
-    --sampling-steps 200 \
-    --diffusion-samples 1
+python scripts/run_boltz2_top100.py --accelerator gpu --sampling-steps 200
 ```
 
 Features:
-- Uses VDR ligand-binding domain sequence (residues 120-423)
-- Generates protein-ligand complex structures via diffusion
+- Uses VDR ligand-binding domain sequence (residues 120–423)
+- Generates protein–ligand complex structures via diffusion
 - Outputs PDB files with confidence scores (pLDDT, PAE, PDE)
-- Uses ColabFold MSA server for sequence alignment
 
-### Output Structure
+## Input Format
 
-```
-results/cwra_final/
-├── cwra_final_rankings.csv        # CWRA rankings for all compounds
-├── g_group_pdbs_docked/           # Docked structures
-│   ├── manifest.csv               # Compound metadata
-│   ├── top_G1_rank00137_*.pdb
-│   └── ...
-└── boltz2_predictions/            # Boltz-2 predictions
-    ├── boltz2_results.csv         # Summary with confidence scores
-    ├── boltz_results_*/           # Per-compound results
-    │   └── predictions/
-    │       └── *_model_0.pdb      # Predicted structure
-    └── inputs/                    # YAML input files
-```
-
-## Reproducing publication figures
-
-Regenerate `results/publication_figures/fig1..fig7_*.pdf` (and PNGs) from an existing CWRA run:
-
-```bash
-python scripts/generate_publication_figures.py --prefix results/extended --outdir results/publication_figures
-```
-
-Notes:
-- The script will reuse `results/plip_analysis.(pdf|png)` if present.
-- To regenerate from a different run, pass its prefix (e.g. `results/extended_cv`).
+The input CSV requires:
+- `smiles`: SMILES strings
+- `source`: Source identifier (e.g., `initial_370` for actives, `G1`/`G2`/`G3` for generated)
+- `generator`: Generator name (e.g., `reinvent`, `gmdldr`, `transmol`)
+- Modality columns: `graphdta_kd`, `graphdta_ki`, `graphdta_ic50`, `mltle_pKd`, `vina_score`, `boltz_affinity`, `boltz_confidence`, `unimol_similarity`, `tankbind_affinity`, `drugban_affinity`, `moltrans_affinity`
 
 ## Metrics
 
@@ -296,16 +247,18 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Citation
 
+If you use this code in your research, please cite:
+
 ```bibtex
 @software{salimzhanov2026cwra,
-  title={CWRA: Calibrated Weighted Rank Aggregation for VDR Virtual Screening},
-  author={Salimzhanov, Abylay and Moln{\'a}r, Ferdinand and Fazli, Siamac},
-  year={2026},
-  url={https://github.com/Salimzhanov/cwra-vdr},
-  version={1.3.0}
+  title   = {CWRA: Calibrated Weighted Rank Aggregation for VDR Virtual Screening},
+  author  = {Salimzhanov, Abylay and Moln{\'a}r, Ferdinand and Fazli, Siamac},
+  year    = {2026},
+  url     = {https://github.com/Salimzhanov/cwra-vdr},
+  version = {1.3.0}
 }
 ```
 
 ## License
 
-MIT License — see [LICENSE](LICENSE.txt).
+MIT License — see [LICENSE.txt](LICENSE.txt).

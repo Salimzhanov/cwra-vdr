@@ -40,17 +40,10 @@ This release adds a complete structure prediction pipeline for generating 3D pro
 
 ### Files Updated
 - README.md: Added structure prediction documentation
-- CHANGELOG.md: Updated with v1.2.0 changes
 - pyproject.toml: Version bump to 1.2.0
-- .gitignore: Added project-specific ignores
 
 ### Requirements
 - Python 3.8+
 - AutoDock Vina (optional, for docking)
 - Boltz-2 v2.2.1+ (optional, for AI structure prediction)
 - NVIDIA GPU recommended for Boltz-2
-
-### Results
-- 31 Boltz-2 predicted structures in `results/cwra_final/boltz2_predictions/`
-- Docked structures in `results/cwra_final/g_group_pdbs_docked/`
-- Complete rankings in `results/cwra_final/cwra_final_rankings.csv`

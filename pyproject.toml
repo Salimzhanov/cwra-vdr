@@ -39,6 +39,7 @@ dependencies = [
     "rdkit>=2021.03.1",
     "matplotlib>=3.5.0",
     "pillow>=9.0.0",
+    "tqdm>=4.60.0",
 ]
 
 [project.optional-dependencies]
@@ -49,13 +50,16 @@ dev = [
     "flake8",
     "mypy",
 ]
+structure = [
+    "meeko>=0.7.1",
+    "unimol-tools>=0.1.0",
+]
 
 [project.scripts]
 cwra = "cwra:main"
 
 [tool.setuptools]
 packages = ["cwra"]
-py-modules = ["cwra_final"]
 
 [tool.setuptools.package-data]
 cwra = ["data/*.csv"]

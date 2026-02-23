@@ -1,11 +1,10 @@
 include README.md
 include CONTRIBUTING.md
-include CHANGELOG.md
+include LICENSE.txt
 include requirements.txt
 include pyproject.toml
-exclude LICENSE*
+include RELEASE.md
 recursive-include data *.csv
-recursive-include examples *.py
 recursive-include docs *.md
 recursive-include scripts *.py
 global-exclude *.pyc

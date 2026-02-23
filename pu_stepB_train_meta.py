@@ -17,7 +17,7 @@ import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 
-from cwra_compat import CWRAConfig, normalize_modalities
+from cwra import CWRAConfig, normalize_modalities
 from pu_descriptors import compute_physchem_descriptors
 from pu_meta_model import (
     build_feature_matrix,

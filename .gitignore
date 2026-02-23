@@ -124,19 +124,32 @@ models/*.pt
 models/*.pth
 models/*.onnx
 
-# Boltz-2 cache and intermediate files
-.boltz/
-boltz_cache/
+# Generated structure prediction outputs (regenerate with scripts/)
+results/boltz2_top100/
+results/vina_docking/
+results/cwra_final/boltz2_predictions/boltz_results_*/
 results/cwra_final/boltz2_predictions/boltz_results_*/lightning_logs/
 results/cwra_final/boltz2_predictions/boltz_results_*/msa/
 results/cwra_final/boltz2_predictions/boltz_results_*/processed/
+pdb/top100_g_complexes/
+pdb/flexible_complexes/
+pdb/topbottom_structs/
 
 # Results that should be regenerated
 results/*_backup*/
+results/*.pdb
 
 # Backup data files
 data/*_backup*.csv
 data/*_old.csv
+
+# External dependency repos (clone separately if needed)
+TankBind/
+DrugBAN/
+MolTrans/
+
+# Generated documents
+*.pdf
 
 # IDE settings
 .idea/

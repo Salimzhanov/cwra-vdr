@@ -30,9 +30,9 @@ This project follows PEP 8 style guidelines. We use:
 
 Run the following before committing:
 ```bash
-black cwra/
-flake8 cwra/
-mypy cwra/
+black cwra/ cwra.py pu_conformal.py run_cwra.py create_cwra_tables.py
+flake8 cwra/ cwra.py pu_conformal.py run_cwra.py create_cwra_tables.py
+mypy cwra/ cwra.py pu_conformal.py run_cwra.py create_cwra_tables.py
 ```
 
 ## Testing
