@@ -134,6 +134,9 @@ results/cwra_final/boltz2_predictions/boltz_results_*/processed/
 pdb/top100_g_complexes/
 pdb/flexible_complexes/
 pdb/topbottom_structs/
+pdb/*_clean.pdb
+pdb/*_original.pdb
+pdb/*_prepared.pdb
 
 # Results that should be regenerated
 results/*_backup*/
