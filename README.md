@@ -174,34 +174,6 @@ cwra-vdr/
 | DrugBAN affinity | Bilinear attention network for drug–target interaction | [GitHub](https://github.com/peizhenbai/DrugBAN) |
 | MolTrans affinity | Transformer for drug–target interaction prediction | [GitHub](https://github.com/kexinhuang12345/MolTrans) |
 
-## Performance
-
-Results from CWRA fair-weight optimization on 16,059 compounds (366 actives from initial_370 + calcitriol).
-
-### Enrichment Metrics
-
-| Metric | Value | Description |
-|--------|-------|-------------|
-| **EF@1%** | **24.96** | 91 actives in top 160 compounds |
-| **EF@5%** | **13.57** | 248 actives in top 802 compounds |
-| **EF@10%** | **9.68** | 354 actives in top 1,605 compounds |
-| **Hits@20%** | 362/366 | 98.9% of actives recovered |
-| **Hits@30%** | 366/366 | 100% recovery |
-| **Calcitriol Rank** | 29 | Reference ligand in top 0.2% |
-
-### Top 50 Compound Composition
-
-| Source | Count | Description |
-|--------|-------|-------------|
-| initial_370 | 31 | Known VDR binders |
-| G2 | 16 | 2-model consensus candidates |
-| G3 | 2 | 3-model consensus candidates |
-| calcitriol | 1 | Reference ligand (rank 29) |
-
-## Structure Prediction Pipeline
-
-The project includes pipelines for generating 3D structures of top-ranked compounds.
-
 ### AutoDock Vina Docking
 
 ```bash
@@ -215,7 +187,7 @@ python scripts/run_boltz2_top100.py --accelerator gpu --sampling-steps 200
 ```
 
 Features:
-- Uses VDR ligand-binding domain sequence (residues 120–423)
+- Uses VDR ligand-binding domain sequence (1db1)
 - Generates protein–ligand complex structures via diffusion
 - Outputs PDB files with confidence scores (pLDDT, PAE, PDE)
 
