@@ -25,7 +25,7 @@
 ## Version 1.2.0 (2026-01-30)
 
 ### Summary
-This release adds a complete structure prediction pipeline for generating 3D protein-ligand complex structures of CWRA-ranked compounds using both AutoDock Vina docking and Boltz-2 AI structure prediction.
+Adds Vina docking and Boltz-2 structure prediction for top CWRA-ranked compounds.
 
 ### New Features
 - **Structure Prediction Pipeline**

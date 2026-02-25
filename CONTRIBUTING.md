@@ -1,74 +1,40 @@
-# Contributing to CWRA
+# Contributing
 
-Thank you for your interest in contributing to the CWRA (Calibrated Weighted Rank Aggregation) project! This document provides guidelines and information for contributors.
+## Setup
 
-## Development Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Salimzhanov/cwra-vdr.git
-   cd cwra-vdr
-   ```
-
-2. **Create a virtual environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -e ".[dev]"
-   ```
-
-## Code Style
-
-This project follows PEP 8 style guidelines. We use:
-- `black` for code formatting
-- `flake8` for linting
-- `mypy` for type checking
-
-Run the following before committing:
 ```bash
-black cwra/ cwra.py pu_conformal.py run_cwra.py create_cwra_tables.py
-flake8 cwra/ cwra.py pu_conformal.py run_cwra.py create_cwra_tables.py
-mypy cwra/ cwra.py pu_conformal.py run_cwra.py create_cwra_tables.py
+git clone https://github.com/Salimzhanov/cwra-vdr.git
+cd cwra-vdr
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
 ```
 
-## Testing
+## Code style
 
-Run the test suite:
+We use `ruff` for linting. Run before committing:
+
 ```bash
-pytest
+ruff check cwra/ cwra.py pu_conformal.py run_cwra.py
 ```
 
-## Documentation
+## Tests
 
-Update documentation in the `docs/` directory and README.md as needed.
+```bash
+pytest tests/ -v
+```
 
-## Pull Request Process
+## Pull requests
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature-name`
-3. Make your changes and add tests
-4. Run the full test suite and linting
-5. Commit your changes: `git commit -m "Add your feature"`
-6. Push to your fork: `git push origin feature/your-feature-name`
-7. Create a Pull Request
+1. Fork & branch (`git checkout -b fix/description`)
+2. Make changes, add tests if applicable
+3. `pytest tests/ -v` must pass
+4. Open a PR against `master`
 
-## Issues
+## Bugs
 
-- Use GitHub issues to report bugs or request features
-- Provide detailed information including:
-  - Python version
-  - Operating system
-  - Steps to reproduce
-  - Expected vs actual behavior
-
-## Code of Conduct
-
-This project follows a code of conduct to ensure a welcoming environment for all contributors.
+File an issue with your Python version, OS, and steps to reproduce.
 
 ## License
 
-By contributing to this project, you agree that your contributions will be licensed under the same MIT License that covers the project.
+Contributions are licensed under the same MIT license as the project.

@@ -15,7 +15,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import warnings
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # Paths
 CWRA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

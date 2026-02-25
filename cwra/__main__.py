@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-CWRA Command Line Interface
-
-Entry point for running CWRA as a command-line tool.
-"""
+"""``python -m cwra`` entry point."""
 
 from cwra import main
 

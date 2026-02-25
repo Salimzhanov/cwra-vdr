@@ -12,7 +12,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import warnings
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # Calcitriol (1,25-dihydroxyvitamin D3) - natural VDR ligand
 CALCITRIOL_SMILES = "CC(CCCC(C)(C)O)C1CCC2C(=CC=C3CC(O)CC(O)C3=C)CCCC21C"

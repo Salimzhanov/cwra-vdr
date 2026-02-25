@@ -1,10 +1,13 @@
 # CWRA: Calibrated Weighted Rank Aggregation for VDR Virtual Screening
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/Salimzhanov/cwra-vdr/actions/workflows/ci.yml/badge.svg)](https://github.com/Salimzhanov/cwra-vdr/actions/workflows/ci.yml)
 
-A framework for combining multiple molecular docking and binding modalities to improve virtual screening performance for Vitamin D Receptor (VDR) ligands. Supports 11 modalities, including docking scores, deep learning-based affinity predictions, and similarity-based methods.
+Weighted rank aggregation over 11 docking/affinity modalities for VDR virtual screening.
+Includes AutoDock Vina, GraphDTA, DrugBAN, MolTrans, TankBind, Boltz-2, and Uni-Mol similarity.
+
+**Key Results:** CWRA achieves **EF@1% = 24.96** on a dataset of 16,059 compounds (366 actives), placing 91 actives in the top 1% and calcitriol (reference ligand) at rank 29.
 
 ## Graphical Abstract
 
@@ -114,7 +117,7 @@ python make_mol_panel.py \
 python scripts/smoke_check.py
 ```
 
-See also [docs/GITHUB_QUICKSTART.md](docs/GITHUB_QUICKSTART.md) for a step-by-step walkthrough.
+See [docs/GITHUB_QUICKSTART.md](docs/GITHUB_QUICKSTART.md) for a quickstart guide.
 
 ## Project Structure
 
@@ -146,9 +149,9 @@ cwra-vdr/
 ├── results/                       # Generated outputs (not tracked in git)
 ├── pdb/                           # VDR structure files (1DB1 crystal structure)
 ├── models/                        # Pre-trained model weights
-├── DrugBAN/                       # DrugBAN submodule
-├── MolTrans/                      # MolTrans submodule
-├── TankBind/                      # TankBind submodule
+├── DrugBAN/                       # DrugBAN (external, not tracked)
+├── MolTrans/                      # MolTrans (external, not tracked)
+├── TankBind/                      # TankBind (external, not tracked)
 ├── tests/                         # Unit tests
 ├── pyproject.toml
 ├── requirements.txt

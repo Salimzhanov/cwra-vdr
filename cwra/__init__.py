@@ -1,14 +1,8 @@
 """
-CWRA: Calibrated Weighted Rank Aggregation for VDR Virtual Screening
+cwra -- Calibrated Weighted Rank Aggregation for VDR virtual screening.
 
-A robust machine learning framework for combining multiple molecular docking
-and binding affinity prediction modalities to improve virtual screening
-performance for Vitamin D Receptor (VDR) ligands.
-
-Authors:
-- Abylay Salimzhanov (First Author)
-- Ferdinand Molnár (Second Author)
-- Siamac Fazli (Corresponding Author)
+Re-exports public symbols from the top-level cwra.py script so that
+``from cwra import CWRAConfig`` and ``python -m cwra`` both work.
 """
 
 from __future__ import annotations

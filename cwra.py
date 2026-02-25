@@ -31,7 +31,8 @@ import warnings
 import sys
 import time
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 OBJECTIVE_PRESETS = {
     "default":    {1: 5, 5: 2, 10: 1},
     "sharp":      {0.5: 10, 1: 5, 5: 1},
@@ -135,7 +136,7 @@ def normalize_weights(weights: np.ndarray, min_weight: float, max_weight: float)
 
 @dataclass
 class CWRAConfig:
-    """Configuration for CWRA optimization."""
+    """CWRA optimization settings."""
 
     modalities: Dict[str, Tuple[str, str]] = field(default_factory=lambda: {
         'graphdta_kd': ('high', 'GraphDTA_Kd'),
@@ -1300,9 +1301,7 @@ class CWRATrainTest:
         return df_result
 
     def get_comparison_table(self) -> pd.DataFrame:
-        """
-        Comprehensive comparison table with train, test, and full columns.
-        """
+        """Comparison table: train / test / full enrichment metrics."""
         rows = []
 
         # --- Baselines (use test-set evaluation for honest comparison) ---

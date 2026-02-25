@@ -39,7 +39,7 @@ from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem, Descriptors, rdMolDescriptors, rdFingerprintGenerator
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
 
 # ═══════════════════════════════════════════════════════════════════════
 # CONFIGURATION

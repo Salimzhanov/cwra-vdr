@@ -12,7 +12,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import warnings
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 
 def compute_tankbind_affinity(input_csv: str, output_csv: str,

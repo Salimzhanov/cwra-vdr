@@ -16,7 +16,8 @@ import pandas as pd
 from tqdm import tqdm
 import torch
 import warnings
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # Configuration
 DATA_FILE = "data/labeled_raw_modalities.csv"
